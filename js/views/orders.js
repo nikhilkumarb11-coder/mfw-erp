@@ -53,7 +53,7 @@ Views.orders = (() => {
   // ───── List ─────
 
   function renderList(el) {
-    const tabs = ['Active', 'All', ...STATUSES];
+    const tabs = ['Active', 'Due soon', 'All', ...STATUSES];
     el.innerHTML = `
       <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
         <div class="input-group input-group-merge flex-grow-1 list-search">
@@ -90,13 +90,15 @@ Views.orders = (() => {
     const paid = Metrics.paidByOrder();
 
     let list = Store.list('Orders').filter(o => {
-      if (filter === 'Active' && Metrics.CLOSED.includes(o.status)) return false;
-      if (filter !== 'Active' && filter !== 'All' && o.status !== filter) return false;
+      const open = !Metrics.CLOSED.includes(o.status);
+      if (filter === 'Active' && !open) return false;
+      if (filter === 'Due soon' && !(open && o.delivery_date && U.daysUntil(o.delivery_date) <= APP_CONFIG.reminderDays)) return false;
+      if (STATUSES.includes(filter) && o.status !== filter) return false;
       if (!q) return true;
       const c = customers.get(o.customer_id) || {};
       return [c.name, c.contact_no, c.company_name, o.order_no].some(v => String(v || '').toLowerCase().includes(q));
     });
-    list.sort(filter === 'Active'
+    list.sort(filter === 'Active' || filter === 'Due soon'
       ? (a, b) => String(a.delivery_date).localeCompare(String(b.delivery_date))
       : (a, b) => String(b.order_date).localeCompare(String(a.order_date)) || String(b.created_at).localeCompare(String(a.created_at)));
     const total = list.length;
@@ -360,6 +362,8 @@ Views.orders = (() => {
     const due = dueText(o);
     const invoice = Metrics.activeInvoiceFor(id);
     const invoiceChanged = invoice && Views.invoices.changedSince(invoice, o);
+    const agreement = Views.agreements.forOrder(id);
+    const quote = o.source_quotation_id ? Store.get('Quotations', o.source_quotation_id) : null;
 
     let invoiceBtn;
     if (invoice) {
@@ -430,6 +434,10 @@ Views.orders = (() => {
               ${!cancelled && balance > 0 ? `<a href="#/payments/new/${encodeURIComponent(id)}" class="btn btn-primary w-100 mt-3"><i class="bx bx-plus me-1"></i>Add payment</a>` : ''}
               ${invoiceBtn}
               ${cancelled ? '' : `<a href="#/invoices/proforma/${encodeURIComponent(id)}" class="btn btn-outline-primary w-100 mt-2"><i class="bx bx-file me-1"></i>Proforma invoice</a>`}
+              ${agreement
+                ? `<a href="#/agreements/${encodeURIComponent(agreement.id)}" class="btn btn-outline-primary w-100 mt-2"><i class="bx bx-pen me-1"></i>View agreement ${agreement.agreement_no ? U.esc(agreement.agreement_no) : ''}</a>`
+                : (cancelled ? '' : `<a href="#/agreements/new/${encodeURIComponent(id)}" class="btn btn-outline-primary w-100 mt-2"><i class="bx bx-pen me-1"></i>Create agreement</a>`)}
+              ${quote ? `<a href="#/quotations/${encodeURIComponent(quote.id)}" class="d-block text-center small mt-3">From quotation ${U.esc(quote.quote_no || '')}</a>` : ''}
             </div>
           </div>
           <div class="card">
@@ -484,7 +492,7 @@ Views.orders = (() => {
     title: 'Orders',
     STATUSES,
     listItem,
-    refreshOn: params => (params[0] === 'new' || params[1] === 'edit') ? null : ['Orders', 'OrderItems', 'Payments', 'Customers', 'Invoices', 'InvoiceItems'],
+    refreshOn: params => (params[0] === 'new' || params[1] === 'edit') ? null : ['Orders', 'OrderItems', 'Payments', 'Customers', 'Invoices', 'InvoiceItems', 'Agreements', 'Quotations'],
 
     render(el, params) {
       const [a, b] = params;

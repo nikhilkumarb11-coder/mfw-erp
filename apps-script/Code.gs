@@ -12,7 +12,7 @@
  * full download (withData) and "batch" can carry the next pull (since).
  */
 
-const API_VERSION = '0.3.0';
+const API_VERSION = '0.4.0';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -26,10 +26,10 @@ const SCHEMA = {
   Payments:       ['receipt_no', 'order_id', 'date', 'amount', 'note', 'status'],
   Invoices:       ['invoice_no', 'type', 'order_id', 'buyer_name', 'buyer_contact', 'buyer_address', 'date', 'total', 'status', 'void_reason'],
   InvoiceItems:   ['invoice_id', 'item_name', 'qty', 'rate', 'amount', 'sort'],
-  Quotations:     ['quote_no', 'customer_id', 'prospect_name', 'prospect_contact', 'date', 'total', 'status', 'converted_order_id'],
+  Quotations:     ['quote_no', 'customer_id', 'prospect_name', 'prospect_contact', 'date', 'total', 'status', 'converted_order_id', 'notes'],
   QuotationItems: ['quotation_id', 'item_name', 'qty', 'rate', 'amount', 'sort'],
-  Agreements:     ['agreement_no', 'order_id', 'date', 'terms_text', 'total'],
-  Terms:          ['term_text', 'sort', 'default_checked', 'active'],
+  Agreements:     ['agreement_no', 'order_id', 'date', 'terms_text', 'total', 'party_name', 'party_contact', 'party_address', 'venue', 'event_date', 'remarks'],
+  Terms:          ['title', 'term_text', 'sort', 'default_checked', 'active'],
   Expenses:       ['date', 'category', 'vendor_name', 'amount', 'description'],
   Settings:       ['key', 'value']
 };
@@ -138,6 +138,39 @@ const VALIDATORS = {
     } else {
       throw invalid_('Unknown invoice type');
     }
+  },
+  Quotations: function (row, prev) {
+    if (prev && prev.status === 'Converted' && (row.is_deleted || row.status !== 'Converted' || row.converted_order_id !== prev.converted_order_id)) {
+      throw invalid_('This quotation was already converted to an order');
+    }
+    if (row.is_deleted) return;
+    if (!row.status) row.status = 'Open';
+    if (['Open', 'Converted'].indexOf(row.status) === -1) throw invalid_('Unknown status: ' + row.status);
+    if (row.status === 'Converted' && !row.converted_order_id) throw invalid_('Converted quotation needs its order');
+    if (!row.customer_id && !row.prospect_name) throw invalid_('Choose a customer or enter the prospect name');
+    if (row.prospect_contact && !/^\d{10}$/.test(String(row.prospect_contact))) throw invalid_('Contact number must be 10 digits');
+    if (row.total < 0) throw invalid_("Total can't be negative");
+  },
+  QuotationItems: function (row, prev, ctx) {
+    if (row.is_deleted) return;
+    if (!prev) {
+      const q = findRow_(ctx, 'Quotations', row.quotation_id);
+      if (!q || q.is_deleted) throw invalid_('Quotation not found');
+    }
+    if (!row.item_name) throw invalid_('Item name is required');
+    if (!(row.qty > 0)) throw invalid_('Quantity must be more than 0');
+  },
+  Agreements: function (row, prev, ctx) {
+    if (row.is_deleted) return;
+    const order = findRow_(ctx, 'Orders', row.order_id);
+    if (!order || order.is_deleted) throw invalid_('Order not found');
+    if (!prev && order.status === 'Cancelled') throw invalid_('This order is cancelled');
+    if (!row.party_name) throw invalid_('Customer name is required');
+    row.total = round2_(order.total);
+  },
+  Terms: function (row) {
+    if (row.is_deleted) return;
+    if (!row.title && !row.term_text) throw invalid_('A term needs a title or text');
   },
   InvoiceItems: function (row, prev, ctx) {
     if (prev) throw invalid_("Invoice items can't be changed");
@@ -610,6 +643,7 @@ function setup() {
   if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
 
   seedSettings_({ company_name: 'Madeena Grand Fireworks' });
+  seedTerms_();
   getTokenSecret_();
 
   // A toast, not ui.alert(): an alert blocks a run started from the editor until someone clicks OK in the Sheet.
@@ -645,6 +679,29 @@ function seedSettings_(defaults) {
     writeTable_(t);
     PropertiesService.getScriptProperties().setProperty('mod_Settings', now);
   }
+}
+
+/** Default agreement terms; ids match the app's own seeding so neither can create duplicates. */
+const DEFAULT_TERMS = [
+  ['Government Clearances & Permits', 'You shall be solely responsible for obtaining and managing all necessary approvals, permits, and clearances from relevant government authorities, including but not limited to the Police, Fire, and Revenue departments.'],
+  ['Payment Terms', 'A minimum of 80% of the total contract payment must be cleared no later than seven (7) days prior to the scheduled event date.'],
+  ['Accommodation & Meals', 'You agree to provide and cover the costs of adequate food and accommodation for the team, commencing three (3) days prior to the event date.'],
+  ['Site Preparation', 'You are responsible for fully preparing the open ground venue prior to our setup. This specifically includes digging the required pits for 15 poles and providing the necessary figure cutouts.']
+];
+
+function seedTerms_() {
+  const t = readTable_('Terms', true);
+  if (t.rows.length) return;
+  const now = nowIso_();
+  DEFAULT_TERMS.forEach(function (term, i) {
+    const row = blankRow_('Terms');
+    row.id = 'term-' + (i + 1); row.title = term[0]; row.term_text = term[1]; row.sort = i;
+    row.default_checked = true; row.active = true;
+    row.created_at = now; row.updated_at = now; row.created_by = 'setup'; row.updated_by = 'setup'; row.is_deleted = false;
+    t.appended.push(row);
+  });
+  writeTable_(t);
+  PropertiesService.getScriptProperties().setProperty('mod_Terms', now);
 }
 
 function promptSetPassword() {

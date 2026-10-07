@@ -1,8 +1,6 @@
 /** Screens that arrive in later phases, the Money hub, and the not-found page. */
 (() => {
   const UPCOMING = {
-    quotations: { title: 'Quotations', icon: 'bx-file', phase: 3, points: ['Totals-only quotation sheet', 'Convert to order in one tap'] },
-    agreements: { title: 'Agreements', icon: 'bx-pen', phase: 3, points: ['Pick terms from your list', 'Order total only, no item rates'] },
     expenses:   { title: 'Expenses', icon: 'bx-money-withdraw', phase: 4, points: ['Purchase, Rent, Travel, Salaries, Maintenance, Misc.', 'Vendor names for purchases', 'Filters by month, category and vendor'] },
     dashboards: { title: 'Dashboards', icon: 'bx-bar-chart-alt-2', phase: 4, points: ['Sales, expenses and profit charts', 'Pending dues ageing', 'Excel export'] }
   };

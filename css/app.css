@@ -619,6 +619,85 @@ body {
 }
 .doc-a5 .doc-void { font-size: 110px; }
 
+/* Agreement firm header (Twinkle Star Traders), rebuilt from the printed letterhead */
+.fh { margin-bottom: 2px; }
+.fh-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.fh-prop {
+  width: 290px;
+  padding-top: 8px;
+  white-space: nowrap;
+  color: #c2410c;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 14px;
+  font-weight: 700;
+}
+.fh-emblem { height: 54px; width: auto; }
+.fh-phone {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  width: 290px;
+  color: #1e3a8a;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.fh-phone-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 2px solid #1e3a8a;
+  border-radius: 50%;
+  font-size: 17px;
+}
+.fh-gstin { margin-top: -6px; color: #1e3a8a; font-size: 13px; font-weight: 800; letter-spacing: 0.02em; }
+.fh-name {
+  margin-top: 2px;
+  color: #86198f;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 46px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: 0.04em;
+  text-align: center;
+  white-space: nowrap;
+}
+.fh-address { margin-top: 4px; color: #1e3a8a; font-size: 13px; font-weight: 700; text-align: center; }
+.fh-rule { height: 0; margin-top: 8px; border-top: 3px double #1f2937; border-bottom: 1px solid #1f2937; padding-top: 2px; }
+
+.doc-event {
+  display: flex;
+  gap: 28px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid #f3c7ad;
+  border-radius: 8px;
+  background: #fff7ed;
+}
+.doc-event-value { font-size: 14px; font-weight: 700; color: #111827; }
+.doc-items-2col { display: flex; gap: 14px; align-items: flex-start; }
+.doc-items-2col .doc-items { flex: 1; }
+.doc-items-2col .doc-items td { padding: 5px 8px; }
+.doc-agr-terms { margin-top: 16px; font-size: 12px; }
+.doc-agr-terms-title {
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #7c2d12;
+}
+.doc-agr-terms ol { margin: 0; padding-left: 18px; }
+.doc-agr-terms li { margin-bottom: 5px; }
+.doc-agr-terms b { color: #111827; }
+
 @media print {
   .layout-menu,
   .layout-navbar,
@@ -631,3 +710,14 @@ body {
     padding-left: 0 !important;
   }
 }
+
+/* Agreement terms checklist */
+.terms-pick { display: grid; gap: .5rem; }
+.terms-pick-item {
+  display: flex; gap: .75rem; align-items: flex-start;
+  padding: .75rem .875rem; border: 1px solid #e4e6e8; border-radius: .5rem;
+  cursor: pointer; transition: border-color .15s, background-color .15s;
+}
+.terms-pick-item:hover { border-color: #fdba74; }
+.terms-pick-item:has(input:checked) { border-color: #ea580c; background: #fff7ed; }
+.terms-pick-item input { flex-shrink: 0; }

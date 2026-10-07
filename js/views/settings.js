@@ -13,7 +13,13 @@ Views.settings = {
     { key: 'upi_id', label: 'UPI ID' },
     { key: 'doc_sign_name', label: 'Name in the signature block', placeholder: 'MADEENA GRAND FIREWORKS' },
     { key: 'invoice_terms', label: 'Terms on invoices (one per line)', type: 'textarea', rows: 4, def: () => Docs.DEFAULT_TERMS },
-    { key: 'invoice_footer', label: 'Invoice footer note', type: 'textarea' }
+    { key: 'invoice_footer', label: 'Invoice footer note', type: 'textarea' },
+    { section: 'Agreement header', note: 'Agreements are issued under this firm. The header is built from these details.' },
+    { key: 'agr_firm_name', label: 'Firm name', def: () => Docs.FIRM_DEFAULTS.agr_firm_name },
+    { key: 'agr_proprietor', label: 'Proprietor', def: () => Docs.FIRM_DEFAULTS.agr_proprietor },
+    { key: 'agr_phones', label: 'Phone numbers (comma separated)', def: () => Docs.FIRM_DEFAULTS.agr_phones },
+    { key: 'agr_gstin', label: 'GSTIN', def: () => Docs.FIRM_DEFAULTS.agr_gstin },
+    { key: 'agr_address', label: 'Address', type: 'textarea', def: () => Docs.FIRM_DEFAULTS.agr_address }
   ],
 
   value(s, f) {
@@ -23,6 +29,9 @@ Views.settings = {
   render(el) {
     const s = Store.settings();
     const field = f => {
+      if (f.section) {
+        return `<div class="col-12 mt-4"><h6 class="mb-0">${f.section}</h6>${f.note ? `<small class="text-muted">${f.note}</small>` : ''}</div>`;
+      }
       const value = U.esc(this.value(s, f));
       const attrs = `class="form-control" id="set-${f.key}" name="${f.key}" ${f.required ? 'required' : ''} ${f.inputmode ? `inputmode="${f.inputmode}"` : ''} ${f.placeholder ? `placeholder="${U.esc(f.placeholder)}"` : ''}`;
       const input = f.type === 'textarea'
@@ -44,6 +53,14 @@ Views.settings = {
               <button type="submit" class="btn btn-primary w-100 w-md-auto"><i class="bx bx-save me-1"></i>Save profile</button>
             </div>
           </form>
+
+          <div class="card mt-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+              <div><h5 class="mb-0">Agreement terms</h5><small class="text-muted">Ticked terms are pre-selected on new agreements.</small></div>
+              <button class="btn btn-sm btn-primary" id="term-add"><i class="bx bx-plus me-1"></i>Add term</button>
+            </div>
+            <div class="list-group list-group-flush" id="terms-list"></div>
+          </div>
         </div>
 
         <div class="col-xl-4">
@@ -74,6 +91,8 @@ Views.settings = {
       </div>`;
 
     this.renderSyncCard();
+    this.renderTerms();
+    el.querySelector('#term-add').addEventListener('click', () => this.editTerm(null));
     if (this.unsub) this.unsub();
     this.unsub = Sync.onStatus(() => {
       if (document.getElementById('sync-card')) this.renderSyncCard();
@@ -87,6 +106,88 @@ Views.settings = {
       UI.toast('Device name saved');
     });
     el.querySelector('#logout-btn').addEventListener('click', () => this.logout());
+  },
+
+  renderTerms() {
+    const box = document.getElementById('terms-list');
+    if (!box) return;
+    const terms = Docs.agreementTerms();
+    box.innerHTML = terms.map((t, i) => `
+      <div class="list-group-item d-flex gap-2 align-items-start">
+        <input class="form-check-input mt-1 flex-shrink-0" type="checkbox" data-default="${U.esc(t.id)}" title="Pre-selected on new agreements"
+          ${t.default_checked !== false && t.default_checked !== 'FALSE' ? 'checked' : ''}>
+        <div class="flex-grow-1 min-w-0">
+          <div class="fw-semibold">${i + 1}. ${U.esc(t.title)}</div>
+          <small class="text-muted">${U.esc(t.term_text)}</small>
+        </div>
+        <div class="d-flex flex-shrink-0">
+          <button class="btn btn-icon btn-sm btn-text-secondary" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up"><i class="bx bx-chevron-up"></i></button>
+          <button class="btn btn-icon btn-sm btn-text-secondary" data-down="${i}" ${i === terms.length - 1 ? 'disabled' : ''} aria-label="Move down"><i class="bx bx-chevron-down"></i></button>
+          <button class="btn btn-icon btn-sm btn-text-secondary" data-edit="${U.esc(t.id)}" aria-label="Edit"><i class="bx bx-edit-alt"></i></button>
+          <button class="btn btn-icon btn-sm btn-text-danger" data-del="${U.esc(t.id)}" aria-label="Delete"><i class="bx bx-trash"></i></button>
+        </div>
+      </div>`).join('') || '<div class="list-group-item text-muted text-center py-4">No terms. Add your first one.</div>';
+
+    const move = async (i, dir) => {
+      const a = terms[i], b = terms[i + dir];
+      await Store.saveMany(terms.map((t, k) => ['Terms', { id: t.id, sort: t === a ? i + dir : t === b ? i : k }]));
+      this.renderTerms();
+    };
+    box.querySelectorAll('[data-up]').forEach(btn => btn.addEventListener('click', () => move(Number(btn.dataset.up), -1)));
+    box.querySelectorAll('[data-down]').forEach(btn => btn.addEventListener('click', () => move(Number(btn.dataset.down), 1)));
+    box.querySelectorAll('[data-default]').forEach(cb => cb.addEventListener('change', async () => {
+      await Store.save('Terms', { id: cb.dataset.default, default_checked: cb.checked });
+    }));
+    box.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => this.editTerm(Store.get('Terms', btn.dataset.edit))));
+    box.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', async () => {
+      const t = Store.get('Terms', btn.dataset.del);
+      const ok = await UI.confirm({ title: 'Delete this term?', message: `"${t.title}" will no longer be offered on new agreements. Existing agreements keep it.`, confirmText: 'Delete' });
+      if (!ok) return;
+      await Store.remove('Terms', t.id);
+      this.renderTerms();
+    }));
+  },
+
+  editTerm(term) {
+    const el = U.el(`
+      <div class="modal fade" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <form class="modal-content" novalidate>
+            <div class="modal-header"><h5 class="modal-title">${term ? 'Edit term' : 'Add term'}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+            <div class="modal-body">
+              <label class="form-label" for="term-title">Title *</label>
+              <input class="form-control mb-3" id="term-title" required maxlength="80" value="${U.esc(term ? term.title : '')}" placeholder="e.g. Payment Terms">
+              <label class="form-label" for="term-text">Text *</label>
+              <textarea class="form-control" id="term-text" rows="4" required maxlength="600">${U.esc(term ? term.term_text : '')}</textarea>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>`);
+    document.body.appendChild(el);
+    const modal = new bootstrap.Modal(el);
+    const form = el.querySelector('form');
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!form.checkValidity()) { form.classList.add('was-validated'); return; }
+      const title = form.querySelector('#term-title').value.trim();
+      const text = form.querySelector('#term-text').value.trim();
+      modal.hide();
+      if (term) {
+        await Store.save('Terms', { id: term.id, title, term_text: text });
+      } else {
+        const last = Docs.agreementTerms().reduce((m, t) => Math.max(m, Number(t.sort) || 0), -1);
+        await Store.save('Terms', { title, term_text: text, sort: last + 1, default_checked: true, active: true });
+      }
+      this.renderTerms();
+    });
+    el.addEventListener('shown.bs.modal', () => form.querySelector('#term-title').focus());
+    el.addEventListener('hidden.bs.modal', () => el.remove());
+    modal.show();
   },
 
   renderSyncCard() {
@@ -115,7 +216,7 @@ Views.settings = {
       return;
     }
     const s = Store.settings();
-    const changed = this.FIELDS.filter(f => form.elements[f.key].value.trim() !== this.value(s, f).trim());
+    const changed = this.FIELDS.filter(f => f.key && form.elements[f.key].value.trim() !== this.value(s, f).trim());
     if (changed.length) {
       await Store.saveMany(changed.map(f => ['Settings', { id: f.key, key: f.key, value: form.elements[f.key].value.trim() }]));
     }

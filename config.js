@@ -1,11 +1,11 @@
-﻿/**
+/**
  * App configuration Ã¢â‚¬â€ the only file you normally need to edit.
  *
  * apiUrl: the Apps Script Web App URL (ends in /exec). Use a test Sheet's URL
  *         while trying things out, then switch to the real Sheet's URL.
  */
 window.APP_CONFIG = {
-  version: '0.3.0',
+  version: '0.4.0',
   companyName: 'Madeena Grand Fireworks',
   shortName: 'MGF',
   tagline: 'Business Manager',

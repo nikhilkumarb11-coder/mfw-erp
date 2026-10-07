@@ -1,5 +1,5 @@
 /**
- * Printable documents (invoice, proforma, receipt): built as HTML on the
+ * Printable documents (invoice, proforma, receipt, quotation, agreement): built as HTML on the
  * company letterhead, previewed on screen, turned into a PDF in the browser
  * and shared to WhatsApp.
  */
@@ -18,6 +18,40 @@ const Docs = (() => {
     'No Exchange & No Returns.',
     'If any wrong firing, we are not responsible.'
   ].join('\n');
+
+  /** Agreements go out under this firm (header rebuilt as text, editable in Settings). */
+  const FIRM_DEFAULTS = {
+    agr_firm_name: 'TWINKLE STAR TRADERS',
+    agr_proprietor: 'SHAIK MUZAKKIR HUSSAIN',
+    agr_phones: '9550227130, 8423123459',
+    agr_gstin: '37KXGPS5933D4ZW',
+    agr_address: 'No. 1 - 4 - 57, Kollamitta, Sullurpeta, Tirupati (DT), Andhra Pradesh - 524 121'
+  };
+
+  /** Same ids as the server's setup seeding, so seeding from both sides never duplicates. */
+  const DEFAULT_AGREEMENT_TERMS = [
+    ['Government Clearances & Permits', 'You shall be solely responsible for obtaining and managing all necessary approvals, permits, and clearances from relevant government authorities, including but not limited to the Police, Fire, and Revenue departments.'],
+    ['Payment Terms', 'A minimum of 80% of the total contract payment must be cleared no later than seven (7) days prior to the scheduled event date.'],
+    ['Accommodation & Meals', 'You agree to provide and cover the costs of adequate food and accommodation for the team, commencing three (3) days prior to the event date.'],
+    ['Site Preparation', 'You are responsible for fully preparing the open ground venue prior to our setup. This specifically includes digging the required pits for 15 poles and providing the necessary figure cutouts.']
+  ].map(([title, term_text], i) => ({ id: `term-${i + 1}`, title, term_text, sort: i, default_checked: true, active: true }));
+
+  function firm() {
+    const s = Store.settings();
+    const out = {};
+    Object.keys(FIRM_DEFAULTS).forEach(k => { out[k] = s[k] || FIRM_DEFAULTS[k]; });
+    return out;
+  }
+
+  /** Agreement terms master list (seeds the defaults the first time it is empty). */
+  function agreementTerms() {
+    const all = Store.list('Terms', { includeDeleted: true });
+    if (!all.length) {
+      Store.saveMany(DEFAULT_AGREEMENT_TERMS.map(t => ['Terms', { ...t }]));
+    }
+    return Store.list('Terms').filter(t => t.active !== false && t.active !== 'FALSE')
+      .sort((a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0));
+  }
 
   function profile() {
     const s = Store.settings();
@@ -111,13 +145,77 @@ const Docs = (() => {
     };
   }
 
+  function quotation(q) {
+    const c = q.customer_id ? Store.get('Customers', q.customer_id) : null;
+    const total = U.round2(q.total);
+    const name = c ? c.name : q.prospect_name;
+    return {
+      kind: 'quotation', size: 'a4', title: 'Quotation', hideRates: true,
+      fileName: `Quotation-${q.quote_no || 'pending'}`,
+      meta: [['Quote No', q.quote_no || 'Pending'], ['Date', U.fmtDate(q.date)]],
+      to: c ? customerTo(c) : { name: q.prospect_name, phone: q.prospect_contact },
+      items: itemsFor('QuotationItems', 'quotation_id', q.id),
+      totals: [['Total Amount', total, 'grand']],
+      words: total,
+      note: q.notes,
+      phone: c ? c.contact_no : q.prospect_contact,
+      message: `Dear ${name}, please find our quotation ${q.quote_no || ''} for ₹${U.money(total)}. We look forward to working with you.`
+    };
+  }
+
+  function parseTerms(text) {
+    try {
+      const list = JSON.parse(text || '[]');
+      return Array.isArray(list) ? list : [];
+    } catch (e) {
+      return String(text || '').split('\n').filter(Boolean).map(t => ({ title: '', text: t }));
+    }
+  }
+
+  function agreement(a) {
+    const order = Store.get('Orders', a.order_id);
+    const total = U.round2(order ? order.total : a.total);
+    return {
+      kind: 'agreement', size: 'a4', title: 'Agreement', hideRates: true, header: 'firm',
+      fileName: `Agreement-${a.agreement_no || 'pending'}`,
+      meta: [['Agreement No', a.agreement_no || 'Pending'], ['Date', U.fmtDate(a.date)], ['Order No', order ? order.order_no || '—' : '—']],
+      to: { name: a.party_name, address: a.party_address, phone: a.party_contact },
+      event: [['Event venue', a.venue], ['Event date', U.fmtDate(a.event_date)], ['Remarks', a.remarks]].filter(([, v]) => v),
+      items: order ? itemsFor('OrderItems', 'order_id', order.id) : [],
+      totals: [['Total Contract Value', total, 'grand']],
+      words: total,
+      agreementTerms: parseTerms(a.terms_text),
+      phone: a.party_contact,
+      message: `Dear ${a.party_name}, please find the agreement ${a.agreement_no || ''} for your event${a.venue ? ' at ' + a.venue : ''}` +
+        `${a.event_date ? ' on ' + U.fmtDate(a.event_date) : ''}. Total contract value ₹${U.money(total)}.`
+    };
+  }
+
   // ───── HTML ─────
+
+  function firmHeader() {
+    const f = firm();
+    const phones = String(f.agr_phones).split(/[,\n]/).map(p => p.trim()).filter(Boolean);
+    return `
+      <div class="fh">
+        <div class="fh-top">
+          <div class="fh-prop">Prop : ${U.esc(f.agr_proprietor)}</div>
+          <img class="fh-emblem" src="assets/emblem.jpg" alt="">
+          <div class="fh-phone"><span class="fh-phone-icon"><i class="bx bx-phone"></i></span>
+            <div>${phones.map(p => `<div>${U.esc(p)}</div>`).join('')}</div></div>
+        </div>
+        ${f.agr_gstin ? `<div class="fh-gstin">GSTIN: ${U.esc(f.agr_gstin)}</div>` : ''}
+        <div class="fh-name">${U.esc(f.agr_firm_name)}</div>
+        <div class="fh-address">${U.esc(f.agr_address)}</div>
+        <div class="fh-rule"></div>
+      </div>`;
+  }
 
   function partyHtml(d) {
     const t = d.to;
     return `
       <div class="doc-party">
-        <div class="doc-label">${d.kind === 'receipt' ? 'Received from' : 'Bill to'}</div>
+        <div class="doc-label">${{ receipt: 'Received from', quotation: 'Quotation for', agreement: 'Customer' }[d.kind] || 'Bill to'}</div>
         <div class="doc-to-name">${U.esc(t.name)}</div>
         ${t.attn ? `<div>Attn: ${U.esc(t.attn)}</div>` : ''}
         ${t.address ? `<div>${U.esc(t.address)}</div>` : ''}
@@ -136,12 +234,11 @@ const Docs = (() => {
     const stamp = d.stamp === 'void' ? '<div class="doc-void">VOID</div>' : '';
     const paidStamp = d.stamp === 'paid' ? '<div class="doc-stamp">PAID</div>' : '';
     const head = `
-      <img class="doc-letterhead" src="assets/letterhead.jpg" alt="">
-      <div class="doc-rule"></div>
+      ${d.header === 'firm' ? firmHeader() : '<img class="doc-letterhead" src="assets/letterhead.jpg" alt=""><div class="doc-rule"></div>'}
       <div class="doc-title">${U.esc(d.title)}</div>`;
     const sign = `
       <div class="doc-sign">
-        <div class="doc-sign-name">For ${U.esc(p.signName)}</div>
+        <div class="doc-sign-name">For ${U.esc(d.header === 'firm' ? firm().agr_firm_name : p.signName)}</div>
         <div class="doc-sign-line">Proprietor</div>
       </div>`;
 
@@ -162,17 +259,60 @@ const Docs = (() => {
         </div>`;
     }
 
-    return `
-      <div class="doc-page doc-a4">${head}${stamp}
-        <div class="doc-parties">${partyHtml(d)}</div>
-        <table class="doc-items">
+    const qtyTable = (list, offset) => `<table class="doc-items">
+          <colgroup><col style="width:52px"><col><col style="width:${d.items.length > 8 ? 80 : 120}px"></colgroup>
+          <thead><tr><th class="doc-sno">S.No</th><th>Item</th><th class="num">Qty</th></tr></thead>
+          <tbody>${list.map((it, i) => `
+            <tr><td class="doc-sno">${offset + i + 1}</td><td>${U.esc(it.item_name)}</td><td class="num">${U.esc(it.qty)}</td></tr>`).join('')}
+          </tbody>
+        </table>`;
+    const half = Math.ceil(d.items.length / 2);
+    const items = d.hideRates
+      ? (d.items.length > 8
+        ? `<div class="doc-items-2col">${qtyTable(d.items.slice(0, half), 0)}${qtyTable(d.items.slice(half), half)}</div>`
+        : qtyTable(d.items, 0))
+      : `<table class="doc-items">
           <colgroup><col style="width:52px"><col><col style="width:96px"><col style="width:120px"><col style="width:140px"></colgroup>
           <thead><tr><th class="doc-sno">S.No</th><th>Item</th><th class="num">Quantity</th><th class="num">Price (Rs.)</th><th class="num">Total (Rs.)</th></tr></thead>
           <tbody>${d.items.map((it, i) => `
             <tr><td class="doc-sno">${i + 1}</td><td>${U.esc(it.item_name)}</td><td class="num">${U.esc(it.qty)}</td>
               <td class="num">${U.money(it.rate)}</td><td class="num">${U.money(it.amount)}</td></tr>`).join('')}
           </tbody>
-        </table>
+        </table>`;
+    const event = d.event && d.event.length ? `
+        <div class="doc-event">${d.event.map(([k, v]) => `<div><div class="doc-label">${k}</div><div class="doc-event-value">${U.esc(v)}</div></div>`).join('')}</div>` : '';
+
+    if (d.kind === 'agreement') {
+      return `
+      <div class="doc-page doc-a4">${head}
+        <div class="doc-parties">${partyHtml(d)}</div>
+        ${event}
+        ${items}
+        <div class="doc-summary">
+          <div class="doc-words"><div class="doc-label">Amount in words</div>${U.inWords(d.words)}</div>
+          ${totalsHtml(d)}
+        </div>
+        ${d.agreementTerms.length ? `
+          <div class="doc-agr-terms">
+            <div class="doc-agr-terms-title">Terms &amp; Conditions</div>
+            <ol>${d.agreementTerms.map(t => `<li>${t.title ? `<b>${U.esc(t.title)}</b><br>` : ''}${U.esc(t.text)}</li>`).join('')}</ol>
+          </div>` : ''}
+        <div class="doc-spacer"></div>
+        <div class="doc-bottom">
+          <div class="doc-sign">
+            <div class="doc-sign-name">${U.esc(d.to.name)}</div>
+            <div class="doc-sign-line">Customer signature</div>
+          </div>
+          ${sign}
+        </div>
+        <div class="doc-foot">Both parties agree to the terms above.</div>
+      </div>`;
+    }
+
+    return `
+      <div class="doc-page doc-a4">${head}${stamp}
+        <div class="doc-parties">${partyHtml(d)}</div>
+        ${items}
         <div class="doc-summary">
           <div class="doc-words"><div class="doc-label">Amount in words</div>${U.inWords(d.words)}${paidStamp}</div>
           ${totalsHtml(d)}
@@ -186,7 +326,7 @@ const Docs = (() => {
           </div>
           ${sign}
         </div>
-        <div class="doc-foot">${p.footer ? U.esc(p.footer) + ' · ' : ''}This is a computer-generated ${d.kind === 'proforma' ? 'proforma invoice' : 'invoice'}.</div>
+        <div class="doc-foot">${p.footer ? U.esc(p.footer) + ' · ' : ''}This is a computer-generated ${{ proforma: 'proforma invoice', quotation: 'quotation' }[d.kind] || 'invoice'}.</div>
       </div>`;
   }
 
@@ -342,5 +482,5 @@ const Docs = (() => {
     }));
   }
 
-  return { DEFAULT_TERMS, proforma, invoice, receipt, render, preview, toPdf, download, share, actionsHtml, wireActions, orderPayments, loadLibs };
+  return { DEFAULT_TERMS, FIRM_DEFAULTS, agreementTerms, parseTerms, quotation, agreement, proforma, invoice, receipt, render, preview, toPdf, download, share, actionsHtml, wireActions, orderPayments, loadLibs };
 })();

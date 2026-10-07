@@ -236,7 +236,8 @@ Views.customers = (() => {
       <div class="card">
         <div class="card-header d-flex align-items-center justify-content-between">
           <h5 class="mb-0">Orders</h5>
-          ${deleted ? '' : `<a href="#/orders/new/${encodeURIComponent(id)}" class="btn btn-sm btn-primary"><i class="bx bx-plus me-1"></i>New order</a>`}
+          ${deleted ? '' : `<a href="#/quotations/new/${encodeURIComponent(id)}" class="btn btn-sm btn-outline-primary"><i class="bx bx-file me-1"></i>Quotation</a>
+            <a href="#/orders/new/${encodeURIComponent(id)}" class="btn btn-sm btn-primary"><i class="bx bx-plus me-1"></i>New order</a>`}
         </div>
         ${orders.length ? `<div class="list-group list-group-flush">${orders.map(o => Views.orders.listItem(o, paid, { showCustomer: false })).join('')}</div>`
           : '<div class="card-body text-center text-muted py-4">No orders yet.</div>'}
