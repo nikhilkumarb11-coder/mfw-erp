@@ -113,11 +113,23 @@ const UI = (() => {
     }
   }
 
+  /**
+   * refreshOn: tables (or params => tables) that should refresh the screen.
+   * Views with update(el, params) refresh just their data area, so a half-typed
+   * search or an open form is never wiped by a background sync.
+   */
   function onDataChange(tables) {
     updateBadges();
     renderSyncStatus(Sync.status());
-    if (!current || !current.view.refreshOn) return;
-    if (current.view.refreshOn.some(t => tables.has(t))) render();
+    if (!current) return;
+    const { view, params } = current;
+    const watch = typeof view.refreshOn === 'function' ? view.refreshOn(params) : view.refreshOn;
+    if (!watch || !watch.some(t => tables.has(t))) return;
+    if (view.update) {
+      try { view.update($('#page-content'), params); } catch (e) { console.error(e); }
+    } else {
+      render();
+    }
   }
 
   function updateBadges() {
@@ -204,9 +216,31 @@ const UI = (() => {
   };
 })();
 
-/** Business numbers shared by Home and (later) the dashboards. */
+/** Business numbers shared by Home, lists and (later) the dashboards. */
 const Metrics = (() => {
   const CLOSED = ['Delivered', 'Cancelled'];
+  let itemMemoryCache = null;
+  Store.onChange(tables => { if (tables.has('OrderItems')) itemMemoryCache = null; });
+
+  /** Every item name used before, with its most recent rate and how often it was used. */
+  function itemMemory() {
+    if (itemMemoryCache) return itemMemoryCache;
+    const map = new Map();
+    Store.list('OrderItems').forEach(it => {
+      const name = String(it.item_name || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      const m = map.get(key);
+      if (!m) {
+        map.set(key, { name, rate: Number(it.rate) || 0, count: 1, at: it.updated_at || '' });
+      } else {
+        m.count++;
+        if ((it.updated_at || '') > m.at) { m.rate = Number(it.rate) || 0; m.at = it.updated_at || ''; m.name = name; }
+      }
+    });
+    itemMemoryCache = [...map.values()].sort((a, b) => b.count - a.count);
+    return itemMemoryCache;
+  }
 
   /** order_id → total paid, in one pass over Payments. */
   function paidByOrder() {
@@ -223,11 +257,48 @@ const Metrics = (() => {
   }
 
   return {
+    CLOSED,
     paidFor,
     paidByOrder,
+    itemMemory,
 
-    balanceFor(order) {
-      return U.round2((Number(order.total) || 0) - paidFor(order.id));
+    itemSuggestions(q) {
+      const needle = q.trim().toLowerCase();
+      if (!needle) return [];
+      const all = itemMemory();
+      const starts = all.filter(m => m.name.toLowerCase().startsWith(needle));
+      const contains = all.filter(m => !m.name.toLowerCase().startsWith(needle) && m.name.toLowerCase().includes(needle));
+      return starts.concat(contains);
+    },
+
+    balanceFor(order, paidMap) {
+      const paid = paidMap ? (paidMap.get(order.id) || 0) : paidFor(order.id);
+      return U.round2((Number(order.total) || 0) - paid);
+    },
+
+    /** Unpaid / Partial / Fully Settled, with the badge colour to show it in. */
+    paymentState(total, paid) {
+      total = U.round2(total);
+      paid = U.round2(paid);
+      if (total > 0 && paid >= total) return { label: 'Fully Settled', color: 'success' };
+      if (paid > 0) return { label: 'Partial', color: 'warning' };
+      return { label: 'Unpaid', color: 'danger' };
+    },
+
+    /** customer id → { orders, billed, paid, balance } over non-cancelled orders. */
+    customerStats() {
+      const paid = paidByOrder();
+      const stats = new Map();
+      Store.list('Orders').forEach(o => {
+        if (o.status === 'Cancelled') return;
+        const s = stats.get(o.customer_id) || { orders: 0, billed: 0, paid: 0, balance: 0 };
+        s.orders++;
+        s.billed += Number(o.total) || 0;
+        s.paid += paid.get(o.id) || 0;
+        s.balance = U.round2(s.billed - s.paid);
+        stats.set(o.customer_id, s);
+      });
+      return stats;
     },
 
     /** Orders due within the reminder window (or overdue) that aren't delivered/cancelled. */

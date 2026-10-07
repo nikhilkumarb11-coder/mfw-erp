@@ -60,23 +60,34 @@ const Store = (() => {
    * at once and is queued for the server.
    */
   async function save(t, patch) {
-    if (!data[t]) throw new Error('Unknown table ' + t);
-    const id = patch.id || U.uuid();
-    const current = data[t].get(id);
+    return (await saveMany([[t, patch]]))[0];
+  }
+
+  /**
+   * Saves several rows as one local step (e.g. an order, its items and its
+   * advance payment). They reach the server in the order given.
+   */
+  async function saveMany(entries) {
     const now = U.nowIso();
-    const clean = { ...patch };
-    delete clean.id;
-    const row = { ...(current || {}), ...clean, id, updated_at: now, _pending: true };
-    if (!current) {
-      row.created_at = now;
-      row.is_deleted = false;
-    }
-    data[t].set(id, row);
-    await DB.putRows([[t, row]]);
-    await enqueue(t, id, current ? 'update' : 'create', clean);
-    emit(t);
+    const prepared = entries.map(([t, patch]) => {
+      if (!data[t]) throw new Error('Unknown table ' + t);
+      const id = patch.id || U.uuid();
+      const current = data[t].get(id);
+      const clean = { ...patch };
+      delete clean.id;
+      const row = { ...(current || {}), ...clean, id, updated_at: now, _pending: true };
+      if (!current) {
+        row.created_at = now;
+        row.is_deleted = false;
+      }
+      data[t].set(id, row);
+      return { t, id, row, type: current ? 'update' : 'create', clean };
+    });
+    await DB.putRows(prepared.map(p => [p.t, p.row]));
+    for (const p of prepared) await enqueue(p.t, p.id, p.type, p.clean);
+    prepared.forEach(p => emit(p.t));
     Sync.kick();
-    return row;
+    return prepared.map(p => p.row);
   }
 
   function remove(t, id) {
@@ -149,7 +160,7 @@ const Store = (() => {
   }
 
   return {
-    TABLES, load, list, get, save, remove, settings, reset,
+    TABLES, load, list, get, save, saveMany, remove, settings, reset,
     takeOutbox, releaseOutbox, finishOp, applyServerRows, discard,
     pendingCount: () => outbox.length,
     hasPending: () => outbox.length > 0,

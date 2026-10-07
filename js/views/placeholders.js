@@ -1,8 +1,6 @@
 /** Screens that arrive in later phases, the Money hub, and the not-found page. */
 (() => {
   const UPCOMING = {
-    customers:  { title: 'Customers', icon: 'bx-user', phase: 1, points: ['Add, edit and remove customers', 'Contact and Aadhar validation', 'Search by name, number or company', 'Orders, billed, paid and balance per customer'] },
-    orders:     { title: 'Orders', icon: 'bx-package', phase: 1, points: ['Multiple items with automatic totals', 'Item names and rates auto-fill', 'Advance payment with receipt', 'Status from Pending to Delivered'] },
     payments:   { title: 'Payments', icon: 'bx-wallet', phase: 2, points: ['Record payments against orders', 'Automatic receipts (PDF + WhatsApp)', 'Unpaid / Partial / Fully Settled badges'] },
     invoices:   { title: 'Invoices', icon: 'bx-receipt', phase: 2, points: ['Final invoice once balance is ₹0', 'Custom invoices for walk-in buyers', 'Numbering MM/YYYY/SEQ', 'PDF download and WhatsApp share'] },
     quotations: { title: 'Quotations', icon: 'bx-file', phase: 3, points: ['Totals-only quotation sheet', 'Convert to order in one tap'] },

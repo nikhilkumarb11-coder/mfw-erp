@@ -9,7 +9,7 @@
  * Responses are JSON: { ok: true, ... } or { ok: false, code, message }.
  */
 
-const API_VERSION = '0.1.0';
+const API_VERSION = '0.2.0';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -46,9 +46,16 @@ const AUTO_NUMBERS = {
 /** Never sent in bulk sync; fetched one record at a time via getPrivate. */
 const PRIVATE_FIELDS = { Customers: ['aadhar_no'] };
 
-/** Per-table server-side rules. Throw invalid_() to reject an op. */
+const ORDER_STATUSES = ['Pending', 'In Production', 'Ready', 'Delivered', 'Cancelled'];
+
+/**
+ * Per-table server-side rules, run under the write lock with the merged row.
+ * prev is null on create. ctx gives access to other tables (including rows
+ * written earlier in the same batch). Throw invalid_() to reject an op.
+ */
 const VALIDATORS = {
-  Customers: function (row, prev) {
+  Customers: function (row) {
+    if (row.is_deleted) return;
     if (!row.name) throw invalid_('Customer name is required');
     if (!/^\d{10}$/.test(String(row.contact_no))) throw invalid_('Contact number must be 10 digits');
     if (!row.location) throw invalid_('Location is required');
@@ -56,8 +63,53 @@ const VALIDATORS = {
   },
   Settings: function (row) {
     if (!row.key) throw invalid_('Setting key is required');
+  },
+  Orders: function (row, prev, ctx) {
+    if (row.is_deleted) return;
+    if (!row.customer_id) throw invalid_('Customer is required');
+    if (!row.delivery_date) throw invalid_('Delivery date is required');
+    if (!row.status) row.status = 'Pending';
+    if (ORDER_STATUSES.indexOf(row.status) === -1) throw invalid_('Unknown status: ' + row.status);
+    if (row.total < 0) throw invalid_("Total can't be negative");
+    if (prev) {
+      const paid = paidForOrder_(ctx, row.id);
+      if (row.total + 0.001 < paid) throw invalid_('Total ₹' + row.total + ' is less than ₹' + paid + ' already paid');
+    }
+  },
+  OrderItems: function (row) {
+    if (row.is_deleted) return;
+    if (!row.order_id) throw invalid_('Item is missing its order');
+    if (!row.item_name) throw invalid_('Item name is required');
+    if (!(row.qty > 0)) throw invalid_('Quantity must be more than 0');
+  },
+  Payments: function (row, prev, ctx) {
+    if (prev) return;
+    if (!row.order_id) throw invalid_('Payment is missing its order');
+    if (!(row.amount > 0)) throw invalid_('Payment amount must be more than 0');
+    const order = findRow_(ctx, 'Orders', row.order_id);
+    if (!order || order.is_deleted) throw invalid_('Order not found');
+    const balance = Math.round((Number(order.total) - paidForOrder_(ctx, row.order_id)) * 100) / 100;
+    if (row.amount > balance + 0.001) throw invalid_('Payment ₹' + row.amount + ' is more than the balance of ₹' + balance);
   }
 };
+
+function tableCtx_(ctx, table) {
+  return ctx[table] || (ctx[table] = readTable_(table));
+}
+
+function findRow_(ctx, table, id) {
+  const t = tableCtx_(ctx, table);
+  const idx = t.index[id];
+  return idx == null ? null : t.rows[idx];
+}
+
+function paidForOrder_(ctx, orderId) {
+  const sum = tableCtx_(ctx, 'Payments').rows.reduce(function (s, p) {
+    if (p.order_id !== orderId || p.is_deleted || p.status === 'Void') return s;
+    return s + (Number(p.amount) || 0);
+  }, 0);
+  return Math.round(sum * 100) / 100;
+}
 
 // ───────────────────────────── HTTP entry points ─────────────────────────────
 
@@ -229,7 +281,7 @@ function applyOp_(op, ctx, user) {
     row.updated_at = now;
     row.updated_by = user;
     row.is_deleted = data.is_deleted === true;
-    if (VALIDATORS[table]) VALIDATORS[table](row, null);
+    if (VALIDATORS[table]) VALIDATORS[table](row, null, ctx);
     assignNumber_(table, row);
     t.index[row.id] = t.rows.length;
     t.rows.push(row);
@@ -249,7 +301,7 @@ function applyOp_(op, ctx, user) {
     Object.keys(data).forEach(function (k) { next[k] = data[k]; });
     next.updated_at = now;
     next.updated_by = user;
-    if (VALIDATORS[table]) VALIDATORS[table](next, prev);
+    if (VALIDATORS[table]) VALIDATORS[table](next, prev, ctx);
     t.rows[idx] = next;
     if (prev.__row) {
       t.updatedIdx[idx] = true;

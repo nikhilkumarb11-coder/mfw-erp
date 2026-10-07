@@ -163,6 +163,97 @@ body {
   font-size: 2.2rem;
 }
 
+/* ───── Lists ───── */
+.min-w-0 { min-width: 0; }
+.list-search { max-width: 32rem; }
+.row-link { cursor: pointer; }
+.table > :not(caption) > * > * { vertical-align: middle; }
+.filter-pills {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scrollbar-width: none;
+}
+.filter-pills .btn { flex-shrink: 0; border-radius: 999px; }
+.list-cards { display: grid; gap: 0.75rem; }
+.list-card { color: inherit; }
+.list-card .card-body { padding: 0.9rem 1rem; }
+.list-card:active { transform: scale(0.99); }
+
+.btn-text-secondary,
+.btn-text-danger {
+  background: transparent;
+  border-color: transparent;
+}
+.btn-text-secondary { color: #697a8d; }
+.btn-text-danger { color: #dc2626; }
+.btn-text-secondary:hover { background: rgba(105, 122, 141, 0.1); color: #435971; }
+.btn-text-danger:hover { background: rgba(220, 38, 38, 0.1); color: #b91c1c; }
+
+/* ───── Forms ───── */
+.form-card .card-header { border-bottom: 1px solid #eceef1; padding-bottom: 1rem; margin-bottom: 0.5rem; }
+.customer-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #d9dee3;
+  border-radius: 0.375rem;
+  background: #fafbfc;
+}
+.typeahead-wrap { position: relative; }
+.typeahead-menu {
+  width: 100%;
+  max-height: 18rem;
+  overflow-y: auto;
+  margin-top: 0.25rem;
+}
+.typeahead-item { white-space: normal; }
+
+.items-head,
+.item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6rem 8rem 8rem 2.5rem;
+  gap: 0.5rem;
+  align-items: center;
+}
+.items-head {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a1acb8;
+  padding: 0 0 0.35rem;
+}
+.item-row { padding: 0.35rem 0; }
+.money-box {
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  background: #f5f5f9;
+}
+.grand-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  background: var(--mfw-primary-soft);
+  color: #435971;
+}
+.grand-total strong { font-size: 1.4rem; color: var(--mfw-primary); }
+.money-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.45rem 0;
+}
+.money-row-total {
+  border-top: 1px dashed #d9dee3;
+  margin-top: 0.25rem;
+  padding-top: 0.7rem;
+  font-size: 1.1rem;
+}
+
 /* ───── Skeleton loaders ───── */
 .skeleton {
   border-radius: 0.25rem;
@@ -324,6 +415,21 @@ body {
   .btn {
     min-height: 40px;
   }
+  .item-row {
+    grid-template-columns: 1fr 1fr 1fr 2.5rem;
+    grid-template-areas: "name name name remove" "qty rate amount amount";
+    padding: 0.75rem;
+    margin-bottom: 0.6rem;
+    border: 1px solid #eceef1;
+    border-radius: 0.5rem;
+    background: #fafbfc;
+  }
+  .item-name { grid-area: name; }
+  .item-qty { grid-area: qty; }
+  .item-rate { grid-area: rate; }
+  .item-amount { grid-area: amount; align-self: end; padding-bottom: 0.6rem; }
+  .item-remove { grid-area: remove; }
+  .list-search { max-width: none; }
   .sticky-save {
     position: sticky;
     bottom: calc(var(--bottom-nav-h) + var(--safe-bottom));
