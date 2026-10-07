@@ -48,7 +48,19 @@ const DB = (() => {
 
     outboxAll: () => run('outbox', 'readonly', s => s.getAll()),
     outboxPut: op => run('outbox', 'readwrite', s => s.put(op)),
-    outboxDelete: seq => run('outbox', 'readwrite', s => s.delete(seq)),
+
+    /** Puts several ops in one transaction; resolves to their keys in order. */
+    async outboxPutMany(ops) {
+      if (!ops.length) return [];
+      const reqs = [];
+      await run('outbox', 'readwrite', s => { ops.forEach(op => reqs.push(s.put(op))); });
+      return reqs.map(r => r.result);
+    },
+
+    outboxDeleteMany(seqs) {
+      if (!seqs.length) return Promise.resolve();
+      return run('outbox', 'readwrite', s => { seqs.forEach(seq => s.delete(seq)); });
+    },
 
     getMeta: key => run('meta', 'readonly', s => s.get(key)),
     setMeta: (key, value) => run('meta', 'readwrite', s => s.put(value, key)),

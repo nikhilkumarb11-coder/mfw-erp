@@ -349,17 +349,33 @@ Views.orders = (() => {
     if (!o || o.is_deleted) { Views.notfound.render(el); return; }
     const c = Store.get('Customers', o.customer_id);
     const items = itemsOf(id);
-    const payments = Store.list('Payments').filter(p => p.order_id === id && p.status !== 'Void')
+    const allPayments = Store.list('Payments').filter(p => p.order_id === id)
       .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.created_at).localeCompare(String(b.created_at)));
+    const payments = allPayments.filter(p => p.status !== 'Void');
     const paid = U.round2(payments.reduce((s, p) => s + (Number(p.amount) || 0), 0));
     const total = U.round2(o.total);
     const balance = U.round2(total - paid);
     const state = Metrics.paymentState(total, paid);
     const cancelled = o.status === 'Cancelled';
     const due = dueText(o);
+    const invoice = Metrics.activeInvoiceFor(id);
+    const invoiceChanged = invoice && Views.invoices.changedSince(invoice, o);
+
+    let invoiceBtn;
+    if (invoice) {
+      invoiceBtn = `<a href="#/invoices/${encodeURIComponent(invoice.id)}" class="btn btn-success w-100 mt-2">
+        <i class="bx bx-receipt me-1"></i>View invoice ${invoice.invoice_no ? U.esc(invoice.invoice_no) : ''}</a>`;
+    } else if (!cancelled && total > 0 && balance <= 0) {
+      invoiceBtn = '<button class="btn btn-success w-100 mt-2" id="final-invoice"><i class="bx bx-receipt me-1"></i>Generate final invoice</button>';
+    } else {
+      invoiceBtn = `<button class="btn btn-outline-secondary w-100 mt-2" disabled>
+        <i class="bx bx-receipt me-1"></i>Final invoice${!cancelled && balance > 0 ? ` · ${U.inr(balance)} pending` : ''}</button>`;
+    }
 
     el.innerHTML = `
       ${cancelled ? '<div class="alert alert-dark">This order is cancelled.</div>' : ''}
+      ${invoiceChanged ? `<div class="alert alert-warning d-flex gap-2"><i class="bx bx-error fs-5"></i>
+        <div>This order changed after invoice ${U.esc(invoice.invoice_no || '')} was issued. Open the invoice and void it if a corrected one is needed.</div></div>` : ''}
       <div class="card mb-4">
         <div class="card-header d-flex align-items-center gap-2 flex-wrap">
           <a href="#/orders" class="btn btn-icon btn-sm btn-text-secondary" aria-label="Back"><i class="bx bx-arrow-back"></i></a>
@@ -411,20 +427,20 @@ Views.orders = (() => {
               <div class="money-row"><span>Total</span><strong>${U.inr(total)}</strong></div>
               <div class="money-row"><span>Paid</span><strong class="text-success">${U.inr(paid)}</strong></div>
               <div class="money-row money-row-total"><span>Balance</span><strong class="${balance > 0 ? 'text-danger' : 'text-success'}">${U.inr(balance)}</strong></div>
-              <button class="btn btn-outline-secondary w-100 mt-3" disabled title="Arrives in Phase 2">
-                <i class="bx bx-receipt me-1"></i>Final invoice ${balance > 0 ? `· ${U.inr(balance)} pending` : ''}
-              </button>
-              <small class="text-muted d-block text-center mt-2">Payments, receipts and invoices arrive in Phase 2.</small>
+              ${!cancelled && balance > 0 ? `<a href="#/payments/new/${encodeURIComponent(id)}" class="btn btn-primary w-100 mt-3"><i class="bx bx-plus me-1"></i>Add payment</a>` : ''}
+              ${invoiceBtn}
+              ${cancelled ? '' : `<a href="#/invoices/proforma/${encodeURIComponent(id)}" class="btn btn-outline-primary w-100 mt-2"><i class="bx bx-file me-1"></i>Proforma invoice</a>`}
             </div>
           </div>
           <div class="card">
             <h5 class="card-header">Payments</h5>
-            ${payments.length ? `<div class="list-group list-group-flush">${payments.map(p => `
-              <div class="list-group-item d-flex justify-content-between">
-                <div><div class="fw-semibold">${p.receipt_no ? U.esc(p.receipt_no) : '<span class="text-muted fst-italic">Saving…</span>'}</div>
+            ${allPayments.length ? `<div class="list-group list-group-flush">${allPayments.map(p => `
+              <a href="#/payments/${encodeURIComponent(p.id)}" class="list-group-item list-group-item-action d-flex justify-content-between">
+                <div><div class="fw-semibold">${p.receipt_no ? U.esc(p.receipt_no) : '<span class="text-muted fst-italic">Saving…</span>'}
+                  ${p.status === 'Void' ? '<span class="badge bg-label-danger ms-1">Void</span>' : ''}</div>
                   <small class="text-muted">${U.fmtDate(p.date)}${p.note ? ' · ' + U.esc(p.note) : ''}</small></div>
-                <div class="fw-semibold">${U.inr(p.amount)}</div>
-              </div>`).join('')}</div>` : '<div class="card-body text-muted text-center">No payments yet.</div>'}
+                <div class="fw-semibold ${p.status === 'Void' ? 'text-decoration-line-through text-muted' : ''}">${U.inr(p.amount)}</div>
+              </a>`).join('')}</div>` : '<div class="card-body text-muted text-center">No payments yet.</div>'}
           </div>
         </div>
       </div>`;
@@ -442,6 +458,18 @@ Views.orders = (() => {
       await Store.save('Orders', { id, status: next });
       UI.toast(`Status changed to ${next}`);
     });
+    const finalBtn = el.querySelector('#final-invoice');
+    if (finalBtn) finalBtn.addEventListener('click', async () => {
+      const ok = await UI.confirm({
+        title: 'Generate final invoice?',
+        message: `${U.inr(total)} for ${c ? c.name : 'this customer'}. The invoice copies the items as they are now and can't be edited afterwards, only voided.`,
+        confirmText: 'Generate', danger: false
+      });
+      if (!ok) return;
+      const invId = await Views.invoices.createForOrder(o);
+      UI.toast('Final invoice created');
+      location.hash = `#/invoices/${encodeURIComponent(invId)}`;
+    });
     const del = el.querySelector('#order-delete');
     if (del) del.addEventListener('click', async () => {
       const ok = await UI.confirm({ title: 'Delete this order?', message: 'It will be removed from all lists. Use "Cancelled" instead if you want to keep it visible.', confirmText: 'Delete' });
@@ -456,7 +484,7 @@ Views.orders = (() => {
     title: 'Orders',
     STATUSES,
     listItem,
-    refreshOn: params => (params[0] === 'new' || params[1] === 'edit') ? null : ['Orders', 'OrderItems', 'Payments', 'Customers'],
+    refreshOn: params => (params[0] === 'new' || params[1] === 'edit') ? null : ['Orders', 'OrderItems', 'Payments', 'Customers', 'Invoices', 'InvoiceItems'],
 
     render(el, params) {
       const [a, b] = params;

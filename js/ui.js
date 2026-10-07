@@ -158,17 +158,20 @@ const UI = (() => {
     btn.innerHTML = `<i class="bx ${icon}"></i><span class="sync-label">${label}</span>`;
   }
 
-  function toast(message, type = 'success') {
+  /** action: { label, onClick } adds a button and keeps the toast open until used or closed. */
+  function toast(message, type = 'success', action = null) {
     const icons = { success: 'bx-check-circle', danger: 'bx-error-circle', warning: 'bx-error', info: 'bx-info-circle' };
     const el = U.el(`
       <div class="toast align-items-center text-white bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true">
         <div class="d-flex">
           <div class="toast-body d-flex gap-2 align-items-start"><i class="bx ${icons[type] || icons.info} fs-5"></i><span>${U.esc(message)}</span></div>
+          ${action ? `<button type="button" class="btn btn-sm btn-light my-auto" data-action>${U.esc(action.label)}</button>` : ''}
           <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
         </div>
       </div>`);
+    if (action) el.querySelector('[data-action]').addEventListener('click', action.onClick);
     $('#toast-area').appendChild(el);
-    const t = new bootstrap.Toast(el, { delay: type === 'danger' || type === 'warning' ? 7000 : 3000 });
+    const t = new bootstrap.Toast(el, { autohide: !action, delay: type === 'danger' || type === 'warning' ? 7000 : 3000 });
     el.addEventListener('hidden.bs.toast', () => el.remove());
     t.show();
   }
@@ -256,10 +259,16 @@ const Metrics = (() => {
     return paidByOrder().get(orderId) || 0;
   }
 
+  /** The order's final invoice that isn't void, if any. */
+  function activeInvoiceFor(orderId) {
+    return Store.list('Invoices').find(i => i.type === 'Order' && i.order_id === orderId && i.status !== 'Void') || null;
+  }
+
   return {
     CLOSED,
     paidFor,
     paidByOrder,
+    activeInvoiceFor,
     itemMemory,
 
     itemSuggestions(q) {

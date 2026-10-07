@@ -65,10 +65,12 @@ const Auth = (() => {
       return !!localStorage.getItem(TOKEN_KEY) && exp > Date.now();
     },
 
+    /** Resolves to the full data download that comes with the reply (older servers send none). */
     async login(password) {
-      const res = await Api.call('login', { password });
+      const res = await Api.call('login', { password, withData: true }, { timeoutMs: 90000 });
       localStorage.setItem(TOKEN_KEY, res.token);
       localStorage.setItem(EXP_KEY, String(res.expiresAt));
+      return res.sync || null;
     },
 
     /** Clears the session and this device's cached data (it's a shared login). */
@@ -116,14 +118,28 @@ const Sync = (() => {
     listeners.forEach(fn => fn(status));
   }
 
-  async function push() {
+  async function applyPull(sync) {
+    await Store.applyServerTables(sync.tables);
+    await DB.setMeta('since', sync.serverTime);
+    lastPullAt = Date.now();
+  }
+
+  /**
+   * Sends the outbox. When withPull is set, the first batch also asks for
+   * changes since the last pull, saving a separate round trip. Returns true
+   * if that pull happened.
+   */
+  async function push(withPull) {
+    let pulled = false;
     while (Store.hasPending()) {
       const ops = Store.takeOutbox(BATCH_SIZE);
-      if (!ops.length) return;
+      if (!ops.length) break;
       setStatus({ state: 'saving' });
+      const since = withPull && !pulled ? (await DB.getMeta('since')) || '' : '';
       let res;
       try {
         res = await Api.call('batch', {
+          since: since || undefined,
           ops: ops.map(op => ({
             opId: op.seq,
             table: op.t,
@@ -132,37 +148,43 @@ const Sync = (() => {
             data: op.data,
             base: op.type === 'update' ? (Store.get(op.t, op.id) || {})._srv || null : null
           }))
-        });
+        }, { timeoutMs: 90000 });
       } catch (e) {
         Store.releaseOutbox(ops);
         throw e;
       }
+
+      const answered = [];
+      const rows = {};
+      const discards = [];
+      const errors = new Set();
+      let conflict = false;
       for (const result of res.results) {
         const op = ops.find(o => o.seq === result.opId);
         if (!op) continue;
-        await Store.finishOp(op);
-        if (result.ok) {
-          await Store.applyServerRows(op.t, [result.row]);
-        } else if (result.code === 'CONFLICT') {
-          await Store.applyServerRows(op.t, [result.row]);
-          UI.toast('Someone else changed this record first. Their version is shown — please redo your edit.', 'warning');
-        } else {
-          if (result.row) await Store.applyServerRows(op.t, [result.row]);
-          else if (op.type === 'create') await Store.discard(op.t, op.id);
-          UI.toast(`Not saved: ${result.message}`, 'danger');
+        answered.push(op);
+        if (result.row) (rows[op.t] = rows[op.t] || []).push(result.row);
+        if (result.ok) continue;
+        if (result.code === 'CONFLICT') conflict = true;
+        else {
+          if (!result.row && op.type === 'create') discards.push(op);
+          errors.add(result.message);
         }
       }
+      await Store.finishOps(answered);
+      await Store.applyServerTables(rows);
+      for (const op of discards) await Store.discard(op.t, op.id);
+      if (res.sync) { await applyPull(res.sync); pulled = true; }
+      if (conflict) UI.toast('Someone else changed this record first. Their version is shown — please redo your edit.', 'warning');
+      errors.forEach(msg => UI.toast(`Not saved: ${msg}`, 'danger'));
     }
+    return pulled;
   }
 
   async function pull() {
     const since = (await DB.getMeta('since')) || '';
     const res = await Api.call('sync', { since }, { timeoutMs: 90000 });
-    for (const [table, rows] of Object.entries(res.tables || {})) {
-      await Store.applyServerRows(table, rows);
-    }
-    await DB.setMeta('since', res.serverTime);
-    lastPullAt = Date.now();
+    await applyPull(res);
   }
 
   async function run({ forcePull = false } = {}) {
@@ -170,8 +192,9 @@ const Sync = (() => {
     if (running) { again = true; return; }
     running = true;
     try {
-      await push();
-      if (forcePull || Date.now() - lastPullAt >= APP_CONFIG.syncIntervalMs - 1000) {
+      const wantPull = forcePull || Date.now() - lastPullAt >= APP_CONFIG.syncIntervalMs - 1000;
+      const pulled = await push(wantPull);
+      if (wantPull && !pulled) {
         setStatus({ state: 'syncing' });
         await pull();
       }
@@ -196,11 +219,12 @@ const Sync = (() => {
   }
 
   return {
-    /** First sync after login: pulls everything before the app opens. */
-    async initial() {
+    /** Full download before the app opens. `data` is the copy that came with the login reply. */
+    async initial(data) {
       await DB.setMeta('since', '');
       lastPullAt = 0;
-      await pull();
+      if (data && data.tables) await applyPull(data);
+      else await pull();
       setStatus({ state: 'synced', lastSync: U.nowIso() });
     },
 

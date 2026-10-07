@@ -1,5 +1,5 @@
 /**
- * Madina Fire Works ERP — Google Apps Script API
+ * Madeena Grand Fireworks ERP — Google Apps Script API
  *
  * This file is a copy kept in GitHub for version history. The live code runs
  * inside the Google Sheet: Extensions → Apps Script. See README.md for setup.
@@ -7,9 +7,12 @@
  * All requests are POST with Content-Type text/plain and a JSON body:
  *   { action: "login" | "sync" | "batch" | "getPrivate", token, ... }
  * Responses are JSON: { ok: true, ... } or { ok: false, code, message }.
+ *
+ * Every round trip to Apps Script costs 1–3 s, so "login" can carry the first
+ * full download (withData) and "batch" can carry the next pull (since).
  */
 
-const API_VERSION = '0.2.0';
+const API_VERSION = '0.3.0';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -21,7 +24,7 @@ const SCHEMA = {
   Orders:         ['order_no', 'customer_id', 'order_date', 'delivery_date', 'total', 'status', 'source_quotation_id', 'notes'],
   OrderItems:     ['order_id', 'item_name', 'qty', 'rate', 'amount', 'sort'],
   Payments:       ['receipt_no', 'order_id', 'date', 'amount', 'note', 'status'],
-  Invoices:       ['invoice_no', 'type', 'order_id', 'buyer_name', 'buyer_contact', 'date', 'total', 'status', 'void_reason'],
+  Invoices:       ['invoice_no', 'type', 'order_id', 'buyer_name', 'buyer_contact', 'buyer_address', 'date', 'total', 'status', 'void_reason'],
   InvoiceItems:   ['invoice_id', 'item_name', 'qty', 'rate', 'amount', 'sort'],
   Quotations:     ['quote_no', 'customer_id', 'prospect_name', 'prospect_contact', 'date', 'total', 'status', 'converted_order_id'],
   QuotationItems: ['quotation_id', 'item_name', 'qty', 'rate', 'amount', 'sort'],
@@ -65,7 +68,10 @@ const VALIDATORS = {
     if (!row.key) throw invalid_('Setting key is required');
   },
   Orders: function (row, prev, ctx) {
-    if (row.is_deleted) return;
+    if (row.is_deleted) {
+      if (prev && !prev.is_deleted && paidForOrder_(ctx, row.id) > 0) throw invalid_("An order with payments can't be deleted. Cancel it instead.");
+      return;
+    }
     if (!row.customer_id) throw invalid_('Customer is required');
     if (!row.delivery_date) throw invalid_('Delivery date is required');
     if (!row.status) row.status = 'Pending';
@@ -83,18 +89,78 @@ const VALIDATORS = {
     if (!(row.qty > 0)) throw invalid_('Quantity must be more than 0');
   },
   Payments: function (row, prev, ctx) {
-    if (prev) return;
+    if (prev) {
+      if (Number(row.amount) !== Number(prev.amount) || row.order_id !== prev.order_id || row.is_deleted) {
+        throw invalid_("A payment can't be changed or deleted. Void it and record a new one.");
+      }
+      if (prev.status === 'Void' && row.status !== 'Void') throw invalid_('A voided payment stays void');
+      if (row.status === 'Void' && prev.status !== 'Void' && activeInvoiceFor_(ctx, row.order_id)) {
+        throw invalid_('This order has a final invoice. Void the invoice first.');
+      }
+      return;
+    }
     if (!row.order_id) throw invalid_('Payment is missing its order');
     if (!(row.amount > 0)) throw invalid_('Payment amount must be more than 0');
     const order = findRow_(ctx, 'Orders', row.order_id);
     if (!order || order.is_deleted) throw invalid_('Order not found');
-    const balance = Math.round((Number(order.total) - paidForOrder_(ctx, row.order_id)) * 100) / 100;
+    const balance = round2_(Number(order.total) - paidForOrder_(ctx, row.order_id));
     if (row.amount > balance + 0.001) throw invalid_('Payment ₹' + row.amount + ' is more than the balance of ₹' + balance);
+    row.status = '';
+  },
+  Invoices: function (row, prev, ctx) {
+    if (prev) {
+      if (prev.status === 'Void') throw invalid_('This invoice is already void');
+      Object.keys(row).forEach(function (k) {
+        if (['status', 'void_reason', 'updated_at', 'updated_by'].indexOf(k) === -1 && String(row[k]) !== String(prev[k])) {
+          throw invalid_("Invoices can't be edited. Void it and issue a new one.");
+        }
+      });
+      if (row.status !== 'Void') throw invalid_('An invoice can only be voided');
+      if (!row.void_reason) throw invalid_('Give a reason for voiding');
+      return;
+    }
+    row.status = 'Issued';
+    row.void_reason = '';
+    if (row.type === 'Order') {
+      const order = findRow_(ctx, 'Orders', row.order_id);
+      if (!order || order.is_deleted) throw invalid_('Order not found');
+      if (order.status === 'Cancelled') throw invalid_('This order is cancelled');
+      const total = round2_(order.total);
+      if (!(total > 0)) throw invalid_('The order total is ₹0');
+      const pending = round2_(total - paidForOrder_(ctx, row.order_id));
+      if (pending > 0.001) throw invalid_('₹' + pending + ' is still pending on this order');
+      if (activeInvoiceFor_(ctx, row.order_id)) throw invalid_('This order already has a final invoice');
+      row.total = total;
+    } else if (row.type === 'Custom') {
+      row.order_id = '';
+      if (!row.buyer_name) throw invalid_('Buyer name is required');
+      if (!(row.total > 0)) throw invalid_('Invoice total must be more than 0');
+    } else {
+      throw invalid_('Unknown invoice type');
+    }
+  },
+  InvoiceItems: function (row, prev, ctx) {
+    if (prev) throw invalid_("Invoice items can't be changed");
+    const inv = findRow_(ctx, 'Invoices', row.invoice_id);
+    if (!inv || inv.is_deleted) throw invalid_('Invoice not found');
+    if (!row.item_name) throw invalid_('Item name is required');
+    if (!(row.qty > 0)) throw invalid_('Quantity must be more than 0');
   }
 };
 
+function activeInvoiceFor_(ctx, orderId) {
+  return tableCtx_(ctx, 'Invoices').rows.some(function (i) {
+    return i.type === 'Order' && i.order_id === orderId && !i.is_deleted && i.status !== 'Void';
+  });
+}
+
+function round2_(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Tables read inside a batch (under the lock), so missing columns can be added. */
 function tableCtx_(ctx, table) {
-  return ctx[table] || (ctx[table] = readTable_(table));
+  return ctx[table] || (ctx[table] = readTable_(table, true));
 }
 
 function findRow_(ctx, table, id) {
@@ -125,13 +191,22 @@ function doPost(e) {
     return json_({ ok: false, code: 'BAD_REQUEST', message: 'Request body is not valid JSON' });
   }
   try {
-    if (req.action === 'login') return json_(login_(req.password));
+    if (req.action === 'login') {
+      const res = login_(req.password);
+      if (res.ok && req.withData) res.sync = sync_('');
+      return json_(res);
+    }
     verifyToken_(req.token);
     const user = String(req.device || 'app').slice(0, 40);
     switch (req.action) {
       case 'ping':       return json_({ ok: true, serverTime: nowIso_() });
       case 'sync':       return json_(sync_(req.since));
-      case 'batch':      return json_(batch_(req.ops || [], user));
+      case 'batch': {
+        const ctx = {};
+        const res = batch_(req.ops || [], user, ctx);
+        if (req.since) res.sync = sync_(req.since, ctx);
+        return json_(res);
+      }
       case 'getPrivate': return json_(getPrivate_(req.table, req.id));
       default:           return json_({ ok: false, code: 'BAD_REQUEST', message: 'Unknown action: ' + req.action });
     }
@@ -142,15 +217,21 @@ function doPost(e) {
 
 // ───────────────────────────── Auth ─────────────────────────────
 
+let PROPS_ = null;
+
+/** Script properties, read once per request (each read is a slow service call). */
+function props_() {
+  return PROPS_ || (PROPS_ = PropertiesService.getScriptProperties().getProperties());
+}
+
 function login_(password) {
-  const props = PropertiesService.getScriptProperties();
   const cache = CacheService.getScriptCache();
   const fails = Number(cache.get('login_fails') || 0);
   if (fails >= MAX_LOGIN_FAILS) {
     return { ok: false, code: 'LOCKED', message: 'Too many wrong attempts. Try again in 15 minutes.' };
   }
-  const salt = props.getProperty('PASSWORD_SALT');
-  const hash = props.getProperty('PASSWORD_HASH');
+  const salt = props_().PASSWORD_SALT;
+  const hash = props_().PASSWORD_HASH;
   if (!salt || !hash) {
     return { ok: false, code: 'NOT_SET_UP', message: 'App password not set. Open the Sheet → MFW ERP menu → Set app password.' };
   }
@@ -182,11 +263,11 @@ function sign_(text) {
 }
 
 function getTokenSecret_() {
-  const props = PropertiesService.getScriptProperties();
-  let secret = props.getProperty('TOKEN_SECRET');
+  let secret = props_().TOKEN_SECRET;
   if (!secret) {
     secret = Utilities.getUuid() + Utilities.getUuid();
-    props.setProperty('TOKEN_SECRET', secret);
+    PropertiesService.getScriptProperties().setProperty('TOKEN_SECRET', secret);
+    props_().TOKEN_SECRET = secret;
   }
   return secret;
 }
@@ -199,15 +280,21 @@ function sha256Hex_(text) {
 
 // ───────────────────────────── Sync (read) ─────────────────────────────
 
-function sync_(since) {
+/**
+ * Rows changed since `since` (everything when empty). Tables the API hasn't
+ * written since the cutoff are skipped without opening the sheet. `ctx` reuses
+ * tables a batch already has in memory.
+ */
+function sync_(since, ctx) {
   const serverTime = nowIso_();
   const cutoff = since ? new Date(new Date(since).getTime() - SYNC_OVERLAP_MS).toISOString() : '';
-  const props = PropertiesService.getScriptProperties().getProperties();
+  const props = props_();
   const tables = {};
   Object.keys(SCHEMA).forEach(function (table) {
     const lastWrite = props['mod_' + table];
-    if (cutoff && lastWrite && lastWrite < cutoff) return;
-    const rows = readTable_(table).rows
+    if (cutoff && (!lastWrite || lastWrite < cutoff)) return;
+    const t = (ctx && ctx[table]) || readTable_(table);
+    const rows = t.rows
       .filter(function (r) { return !cutoff || String(r.updated_at) > cutoff; })
       .map(function (r) { return publicRow_(table, r); });
     if (rows.length) tables[table] = rows;
@@ -231,11 +318,10 @@ function getPrivate_(table, id) {
  * ops: [{ opId, table, id, type: "create"|"update", data: {...}, base: updated_at|null }]
  * Each op succeeds or fails on its own; results come back in the same order.
  */
-function batch_(ops, user) {
+function batch_(ops, user, ctx) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) throw error_('BUSY', 'Server busy, will retry');
   try {
-    const ctx = {};
     const results = ops.map(function (op) {
       try {
         return applyOp_(op, ctx, user);
@@ -254,6 +340,7 @@ function batch_(ops, user) {
       const mods = {};
       touched.forEach(function (name) { mods['mod_' + name] = now; });
       PropertiesService.getScriptProperties().setProperties(mods);
+      Object.assign(props_(), mods);
     }
     return { ok: true, serverTime: nowIso_(), results: results };
   } finally {
@@ -265,7 +352,7 @@ function applyOp_(op, ctx, user) {
   const table = op.table;
   if (!SCHEMA[table]) throw error_('BAD_REQUEST', 'Unknown table: ' + table);
   if (!op.id) throw error_('BAD_REQUEST', 'Missing id');
-  const t = ctx[table] || (ctx[table] = readTable_(table));
+  const t = tableCtx_(ctx, table);
   const idx = t.index[op.id];
   const now = nowIso_();
   const data = sanitize_(table, op.data || {});
@@ -383,10 +470,22 @@ function getSheet_(name) {
   return sh;
 }
 
-function readTable_(table) {
+/** addMissing: append columns added to SCHEMA since setup ran (only while holding the lock). */
+function readTable_(table, addMissing) {
   const sh = getSheet_(table);
   const values = sh.getDataRange().getValues();
   const headers = (values[0] || []).map(function (h) { return String(h || '').trim(); });
+  if (addMissing && headers.length) {
+    const missing = headersFor_(table).filter(function (h) { return headers.indexOf(h) === -1; });
+    if (missing.length) {
+      sh.getRange(1, headers.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold').setBackground('#fde8dc');
+      missing.forEach(function (h, i) {
+        const col = columnLetter_(headers.length + i + 1);
+        sh.getRange(col + '2:' + col).setNumberFormat(formatFor_(h));
+      });
+      Array.prototype.push.apply(headers, missing);
+    }
+  }
   const tz = Session.getScriptTimeZone();
   const rows = [];
   const index = {};
@@ -510,7 +609,7 @@ function setup() {
   const blank = ss.getSheetByName('Sheet1');
   if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
 
-  seedSettings_({ company_name: 'Madina Fire Works' });
+  seedSettings_({ company_name: 'Madeena Grand Fireworks' });
   getTokenSecret_();
 
   // A toast, not ui.alert(): an alert blocks a run started from the editor until someone clicks OK in the Sheet.

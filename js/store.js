@@ -83,8 +83,25 @@ const Store = (() => {
       data[t].set(id, row);
       return { t, id, row, type: current ? 'update' : 'create', clean };
     });
-    await DB.putRows(prepared.map(p => [p.t, p.row]));
-    for (const p of prepared) await enqueue(p.t, p.id, p.type, p.clean);
+    // An unsent op for the same row absorbs the new change instead of queueing another.
+    const merged = new Set();
+    const fresh = [];
+    prepared.forEach(p => {
+      const waiting = fresh.find(op => op.t === p.t && op.id === p.id)
+        || outbox.find(op => op.t === p.t && op.id === p.id && !op.inflight);
+      if (waiting) {
+        Object.assign(waiting.data, p.clean);
+        if (waiting.seq != null) merged.add(waiting);
+      } else {
+        fresh.push({ t: p.t, id: p.id, type: p.type, data: { ...p.clean }, at: now });
+      }
+    });
+    const mergedOps = [...merged];
+    const [, seqs] = await Promise.all([
+      DB.putRows(prepared.map(p => [p.t, p.row])),
+      DB.outboxPutMany([...mergedOps.map(strip), ...fresh])
+    ]);
+    fresh.forEach((op, i) => { op.seq = seqs[mergedOps.length + i]; op.inflight = false; outbox.push(op); });
     prepared.forEach(p => emit(p.t));
     Sync.kick();
     return prepared.map(p => p.row);
@@ -92,19 +109,6 @@ const Store = (() => {
 
   function remove(t, id) {
     return save(t, { id, is_deleted: true });
-  }
-
-  async function enqueue(t, id, type, patch) {
-    const waiting = outbox.find(op => op.t === t && op.id === id && !op.inflight);
-    if (waiting) {
-      Object.assign(waiting.data, patch);
-      await DB.outboxPut(strip(waiting));
-      return;
-    }
-    const op = { t, id, type, data: { ...patch }, at: U.nowIso() };
-    op.seq = await DB.outboxPut(op);
-    op.inflight = false;
-    outbox.push(op);
   }
 
   const strip = op => { const { inflight, ...rest } = op; return rest; };
@@ -120,23 +124,29 @@ const Store = (() => {
     ops.forEach(op => { op.inflight = false; });
   }
 
-  async function finishOp(op) {
-    outbox = outbox.filter(o => o.seq !== op.seq);
-    await DB.outboxDelete(op.seq);
+  async function finishOps(ops) {
+    const done = new Set(ops.map(op => op.seq));
+    outbox = outbox.filter(o => !done.has(o.seq));
+    await DB.outboxDeleteMany([...done]);
   }
 
-  /** Applies authoritative rows from the server, keeping any still-unsent local edits on top. */
-  async function applyServerRows(t, rows) {
-    if (!data[t] || !rows || !rows.length) return;
+  /**
+   * Applies authoritative rows from the server ({ Table: [rows] }) in one
+   * write, keeping any still-unsent local edits on top.
+   */
+  async function applyServerTables(tables) {
     const writes = [];
-    rows.forEach(srv => {
-      const patch = pendingPatch(t, srv.id);
-      const row = { ...srv, ...(patch || {}), _srv: srv.updated_at, _pending: !!patch };
-      data[t].set(srv.id, row);
-      writes.push([t, row]);
+    Object.entries(tables || {}).forEach(([t, rows]) => {
+      if (!data[t] || !rows || !rows.length) return;
+      rows.forEach(srv => {
+        const patch = pendingPatch(t, srv.id);
+        const row = { ...srv, ...(patch || {}), _srv: srv.updated_at, _pending: !!patch };
+        data[t].set(srv.id, row);
+        writes.push([t, row]);
+      });
+      emit(t);
     });
     await DB.putRows(writes);
-    emit(t);
   }
 
   /** Drops a local row the server rejected on create. */
@@ -161,7 +171,7 @@ const Store = (() => {
 
   return {
     TABLES, load, list, get, save, saveMany, remove, settings, reset,
-    takeOutbox, releaseOutbox, finishOp, applyServerRows, discard,
+    takeOutbox, releaseOutbox, finishOps, applyServerTables, discard,
     pendingCount: () => outbox.length,
     hasPending: () => outbox.length > 0,
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }

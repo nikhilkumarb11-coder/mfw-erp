@@ -73,6 +73,33 @@ const U = (() => {
       return '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
     },
 
+    /** Plain amount with Indian grouping and 2 decimals, for printed documents: 2,40,000.00 */
+    money(n) {
+      return U.round2(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    },
+
+    /** 240000 → "Rupees Two Lakh Forty Thousand Only" (Indian numbering). */
+    inWords(n) {
+      const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve',
+        'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+      const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+      const two = x => x < 20 ? ONES[x] : TENS[Math.floor(x / 10)] + (x % 10 ? ' ' + ONES[x % 10] : '');
+      const three = x => [x >= 100 ? ONES[Math.floor(x / 100)] + ' Hundred' : '', two(x % 100)].filter(Boolean).join(' ');
+      const words = x => {
+        if (!x) return '';
+        return [
+          x >= 1e7 ? words(Math.floor(x / 1e7)) + ' Crore' : '',
+          Math.floor(x / 1e5) % 100 ? two(Math.floor(x / 1e5) % 100) + ' Lakh' : '',
+          Math.floor(x / 1000) % 100 ? two(Math.floor(x / 1000) % 100) + ' Thousand' : '',
+          three(x % 1000)
+        ].filter(Boolean).join(' ');
+      };
+      const v = U.round2(Math.abs(n));
+      const rupees = Math.floor(v);
+      const paise = Math.round((v - rupees) * 100);
+      return `Rupees ${words(rupees) || 'Zero'}${paise ? ' and ' + two(paise) + ' Paise' : ''} Only`;
+    },
+
     esc(s) {
       return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

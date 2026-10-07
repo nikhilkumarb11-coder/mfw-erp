@@ -1,8 +1,6 @@
 /** Screens that arrive in later phases, the Money hub, and the not-found page. */
 (() => {
   const UPCOMING = {
-    payments:   { title: 'Payments', icon: 'bx-wallet', phase: 2, points: ['Record payments against orders', 'Automatic receipts (PDF + WhatsApp)', 'Unpaid / Partial / Fully Settled badges'] },
-    invoices:   { title: 'Invoices', icon: 'bx-receipt', phase: 2, points: ['Final invoice once balance is ₹0', 'Custom invoices for walk-in buyers', 'Numbering MM/YYYY/SEQ', 'PDF download and WhatsApp share'] },
     quotations: { title: 'Quotations', icon: 'bx-file', phase: 3, points: ['Totals-only quotation sheet', 'Convert to order in one tap'] },
     agreements: { title: 'Agreements', icon: 'bx-pen', phase: 3, points: ['Pick terms from your list', 'Order total only, no item rates'] },
     expenses:   { title: 'Expenses', icon: 'bx-money-withdraw', phase: 4, points: ['Purchase, Rent, Travel, Salaries, Maintenance, Misc.', 'Vendor names for purchases', 'Filters by month, category and vendor'] },
@@ -30,20 +28,39 @@
 
   Views.money = {
     title: 'Money',
+    refreshOn: ['Payments', 'Orders', 'Invoices'],
     render(el) {
-      const tiles = [
-        { id: 'payments', label: 'Payments', icon: 'bx-wallet', note: 'Receipts & balances' },
-        { id: 'invoices', label: 'Invoices', icon: 'bx-receipt', note: 'Final & custom invoices' },
-        { id: 'expenses', label: 'Expenses', icon: 'bx-money-withdraw', note: 'Purchases, rent, salaries…' }
+      const m = Metrics.thisMonth();
+      const month = U.today().slice(0, 7);
+      const invoiced = Store.list('Invoices').filter(i => i.status !== 'Void' && String(i.date).startsWith(month));
+      const stats = [
+        ['Collected this month', U.inr(m.collected), 'bx-wallet', 'success'],
+        ['Pending dues', U.inr(m.pending), 'bx-time-five', 'danger'],
+        ['Invoices this month', String(invoiced.length), 'bx-receipt', 'info'],
+        ['Invoiced value', U.inr(invoiced.reduce((s, i) => s + (Number(i.total) || 0), 0)), 'bx-rupee', 'primary']
       ];
-      el.innerHTML = `<div class="row g-3">${tiles.map(t => `
-        <div class="col-12 col-md-4">
-          <a href="#/${t.id}" class="card card-link h-100"><div class="card-body d-flex align-items-center gap-3">
-            <span class="avatar-initial rounded bg-label-primary stat-icon"><i class="bx ${t.icon}"></i></span>
-            <div><h6 class="mb-0">${t.label}</h6><small class="text-muted">${t.note}</small></div>
-            <i class="bx bx-chevron-right ms-auto text-muted"></i>
-          </div></a>
-        </div>`).join('')}</div>`;
+      const tiles = [
+        { href: '#/payments/new', label: 'Add payment', icon: 'bx-plus-circle', note: 'Against an order, with receipt' },
+        { href: '#/payments', label: 'Payments', icon: 'bx-wallet', note: 'Receipts & balances' },
+        { href: '#/invoices', label: 'Invoices', icon: 'bx-receipt', note: 'Final & custom invoices' },
+        { href: '#/invoices/new', label: 'Custom invoice', icon: 'bx-store', note: 'Walk-in buyer' },
+        { href: '#/expenses', label: 'Expenses', icon: 'bx-money-withdraw', note: 'Coming in Phase 4' }
+      ];
+      el.innerHTML = `
+        <div class="row g-3 mb-4">${stats.map(([label, value, icon, color]) => `
+          <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body">
+            <span class="avatar-initial rounded bg-label-${color} stat-icon mb-2"><i class="bx ${icon}"></i></span>
+            <small class="text-muted d-block">${label}</small><h5 class="mb-0">${value}</h5>
+          </div></div></div>`).join('')}
+        </div>
+        <div class="row g-3">${tiles.map(t => `
+          <div class="col-12 col-md-6 col-xl-4">
+            <a href="${t.href}" class="card card-link h-100"><div class="card-body d-flex align-items-center gap-3">
+              <span class="avatar-initial rounded bg-label-primary stat-icon"><i class="bx ${t.icon}"></i></span>
+              <div><h6 class="mb-0">${t.label}</h6><small class="text-muted">${t.note}</small></div>
+              <i class="bx bx-chevron-right ms-auto text-muted"></i>
+            </div></a>
+          </div>`).join('')}</div>`;
     }
   };
 

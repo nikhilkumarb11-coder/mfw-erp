@@ -11,16 +11,22 @@ Views.settings = {
     { key: 'bank_account', label: 'Account number', inputmode: 'numeric' },
     { key: 'bank_ifsc', label: 'IFSC' },
     { key: 'upi_id', label: 'UPI ID' },
+    { key: 'doc_sign_name', label: 'Name in the signature block', placeholder: 'MADEENA GRAND FIREWORKS' },
+    { key: 'invoice_terms', label: 'Terms on invoices (one per line)', type: 'textarea', rows: 4, def: () => Docs.DEFAULT_TERMS },
     { key: 'invoice_footer', label: 'Invoice footer note', type: 'textarea' }
   ],
+
+  value(s, f) {
+    return f.key in s ? s[f.key] || '' : (f.def ? f.def() : '');
+  },
 
   render(el) {
     const s = Store.settings();
     const field = f => {
-      const value = U.esc(s[f.key] || '');
-      const attrs = `class="form-control" id="set-${f.key}" name="${f.key}" ${f.required ? 'required' : ''} ${f.inputmode ? `inputmode="${f.inputmode}"` : ''}`;
+      const value = U.esc(this.value(s, f));
+      const attrs = `class="form-control" id="set-${f.key}" name="${f.key}" ${f.required ? 'required' : ''} ${f.inputmode ? `inputmode="${f.inputmode}"` : ''} ${f.placeholder ? `placeholder="${U.esc(f.placeholder)}"` : ''}`;
       const input = f.type === 'textarea'
-        ? `<textarea ${attrs} rows="2">${value}</textarea>`
+        ? `<textarea ${attrs} rows="${f.rows || 2}">${value}</textarea>`
         : `<input type="${f.type || 'text'}" ${attrs} value="${value}">`;
       return `<div class="col-md-6"><label class="form-label" for="set-${f.key}">${f.label}</label>${input}</div>`;
     };
@@ -31,7 +37,7 @@ Views.settings = {
           <form class="card" id="company-form" novalidate>
             <h5 class="card-header">Company profile</h5>
             <div class="card-body">
-              <p class="text-muted small">Shown on receipts, invoices, quotations and agreements.</p>
+              <p class="text-muted small">Invoices and receipts use your letterhead image for the header; the fields below fill in the rest.</p>
               <div class="row g-3">${this.FIELDS.map(field).join('')}</div>
             </div>
             <div class="card-footer sticky-save">
@@ -109,9 +115,9 @@ Views.settings = {
       return;
     }
     const s = Store.settings();
-    const changed = this.FIELDS.filter(f => (form.elements[f.key].value.trim()) !== (s[f.key] || ''));
-    for (const f of changed) {
-      await Store.save('Settings', { id: f.key, key: f.key, value: form.elements[f.key].value.trim() });
+    const changed = this.FIELDS.filter(f => form.elements[f.key].value.trim() !== this.value(s, f).trim());
+    if (changed.length) {
+      await Store.saveMany(changed.map(f => ['Settings', { id: f.key, key: f.key, value: form.elements[f.key].value.trim() }]));
     }
     UI.toast(changed.length ? 'Company profile saved' : 'No changes to save', changed.length ? 'success' : 'info');
   },

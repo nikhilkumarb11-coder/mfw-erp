@@ -25,6 +25,7 @@ const App = (() => {
     $('#app-shell').classList.remove('d-none');
     if (!started) {
       started = true;
+      setTimeout(() => Docs.loadLibs().catch(() => {}), 5000);
       window.addEventListener('hashchange', UI.route);
       Store.onChange(UI.onDataChange);
       Sync.onStatus(UI.renderSyncStatus);
@@ -39,12 +40,12 @@ const App = (() => {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Checking…';
     try {
-      await Auth.login($('#login-password').value);
+      const data = await Auth.login($('#login-password').value);
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading your data…';
       showApp();
       UI.showSkeleton();
       await Store.load();
-      await Sync.initial();
+      await Sync.initial(data);
       UI.route();
       UI.updateBadges();
       Sync.start();
@@ -58,7 +59,22 @@ const App = (() => {
     }
   }
 
+  /** Off on localhost unless localStorage.mfw_sw is set, so local edits show without a version bump. */
+  function registerWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    const local = ['localhost', '127.0.0.1'].includes(location.hostname);
+    if (local && !localStorage.getItem('mfw_sw')) return;
+    let told = false;
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (told || !e.data || e.data.type !== 'app-updated') return;
+      told = true;
+      UI.toast('A new version of the app is ready.', 'info', { label: 'Reload', onClick: () => location.reload() });
+    });
+    navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service worker not registered', err));
+  }
+
   async function boot() {
+    registerWorker();
     applyBranding();
     UI.buildNav();
     $('#login-form').addEventListener('submit', onLoginSubmit);

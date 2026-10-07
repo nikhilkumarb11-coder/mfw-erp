@@ -1,4 +1,4 @@
-# Madina Fire Works ERP
+# Madeena Grand Fireworks ERP
 
 Static web app (GitHub Pages) + Google Apps Script API + Google Sheets database.
 No build step: edit files, commit, push.
@@ -42,7 +42,11 @@ Version: New version → Deploy**. The URL stays the same.
 4. After a minute the app is live at `https://<you>.github.io/<repo>/`.
 
 ### Releasing a change
-Bump every `?v=1` in `index.html` (e.g. to `?v=2`) so phones pick up the new files, then commit and push.
+Bump every `?v=N` in `index.html` and `VERSION` in `sw.js` to the same new number, then commit and push.
+The app keeps its files on each device (service worker), so without the bump phones keep the old version;
+with it, open apps show "A new version of the app is ready — Reload".
+
+The service worker is off on `localhost` so local edits show immediately; set `localStorage.mfw_sw = 1` to test it.
 
 ## Changing the accent colour
 ```

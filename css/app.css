@@ -439,6 +439,186 @@ body {
   }
 }
 
+/* ───── Printable documents (invoice / proforma / receipt) ─────
+   Sized in CSS px at 96 dpi: A4 = 794 × 1123, A5 = 559 × 794. */
+.doc-viewport {
+  background: #eceef1;
+  border-radius: 0.5rem;
+  padding: 12px;
+  overflow: hidden;
+}
+.doc-fit { margin: 0 auto; }
+.doc-scaler {
+  transform-origin: top left;
+  width: max-content;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+}
+.doc-render-host {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.doc-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: #fff;
+  color: #1f2937;
+  font-family: 'Public Sans', Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+}
+.doc-a4 { width: 794px; min-height: 1123px; padding: 26px 40px 28px; }
+.doc-a5 { width: 559px; min-height: 794px; padding: 18px 26px 20px; font-size: 12px; }
+.doc-page * { box-sizing: border-box; }
+.doc-letterhead { display: block; width: 100%; height: auto; }
+.doc-rule {
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #991b1b, #ea580c 50%, #991b1b);
+}
+.doc-title {
+  margin: 14px 0 16px;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #111827;
+}
+.doc-a5 .doc-title { margin: 10px 0 12px; font-size: 14px; }
+.doc-parties {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+.doc-label {
+  margin-bottom: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+.doc-to-name { font-size: 15px; font-weight: 700; color: #111827; }
+.doc-a5 .doc-to-name { font-size: 13.5px; }
+.doc-meta { border-collapse: collapse; }
+.doc-meta td { padding: 1px 0; vertical-align: top; }
+.doc-meta td:first-child { padding-right: 12px; color: #6b7280; }
+.doc-meta td:last-child { font-weight: 700; color: #111827; text-align: right; white-space: nowrap; }
+
+.doc-items { width: 100%; border-collapse: collapse; }
+.doc-items th {
+  padding: 8px 10px;
+  border: 1px solid #f3c7ad;
+  background: #fde8dc;
+  color: #7c2d12;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.doc-items td { padding: 7px 10px; border: 1px solid #e5e7eb; }
+.doc-items tbody tr:nth-child(even) td { background: #fafafa; }
+.doc-page .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.doc-items .doc-sno { width: 52px; text-align: center; }
+
+.doc-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  margin-top: 14px;
+}
+.doc-words { flex: 1; padding-top: 4px; font-weight: 600; }
+.doc-totals { width: 290px; border-collapse: collapse; }
+.doc-a5 .doc-totals { width: 100%; margin-top: 12px; }
+.doc-totals td { padding: 5px 10px; border-bottom: 1px solid #eef0f2; }
+.doc-totals td:first-child { color: #4b5563; }
+.doc-totals td:last-child { font-weight: 600; }
+.doc-grand td {
+  border-top: 2px solid #111827;
+  border-bottom: 0;
+  background: #fff7ed;
+  font-size: 14px;
+  font-weight: 800 !important;
+  color: #111827 !important;
+}
+.doc-amount-box {
+  padding: 12px 14px;
+  border: 1px solid #f3c7ad;
+  border-radius: 8px;
+  background: #fff7ed;
+  text-align: center;
+}
+.doc-amount { font-size: 24px; font-weight: 800; color: #9a3412; }
+.doc-words-inline { font-weight: 600; }
+.doc-note { margin-top: 10px; color: #4b5563; font-style: italic; }
+.doc-spacer { flex: 1 1 auto; min-height: 24px; }
+.doc-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+}
+.doc-terms { color: #b91c1c; font-size: 11.5px; font-weight: 600; }
+.doc-terms-title { margin-bottom: 2px; font-weight: 800; }
+.doc-terms ol { margin: 0; padding-left: 18px; }
+.doc-thanks { color: #6b7280; }
+.doc-sign { flex-shrink: 0; min-width: 210px; text-align: center; }
+.doc-sign-name { font-weight: 800; color: #111827; }
+.doc-sign-line {
+  margin-top: 46px;
+  padding-top: 4px;
+  border-top: 1px solid #9ca3af;
+  font-weight: 700;
+}
+.doc-a5 .doc-sign-line { margin-top: 36px; }
+.doc-foot {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px dashed #e5e7eb;
+  text-align: center;
+  font-size: 10px;
+  color: #9ca3af;
+}
+.doc-stamp {
+  display: block;
+  width: max-content;
+  margin: 22px 0 0 40px;
+  padding: 2px 16px;
+  border: 4px solid currentColor;
+  border-radius: 10px;
+  color: #15803d;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  opacity: 0.55;
+  transform: rotate(-12deg);
+}
+.doc-void {
+  position: absolute;
+  top: 48%;
+  left: 50%;
+  color: #dc2626;
+  font-size: 150px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  opacity: 0.14;
+  transform: translate(-50%, -50%) rotate(-30deg);
+  pointer-events: none;
+}
+.doc-a5 .doc-void { font-size: 110px; }
+
 @media print {
   .layout-menu,
   .layout-navbar,
