@@ -193,6 +193,7 @@ body {
 
 /* ───── Forms ───── */
 .form-card .card-header { border-bottom: 1px solid #eceef1; padding-bottom: 1rem; margin-bottom: 0.5rem; }
+body:has(.form-card) .fab-wrap { display: none; }
 .customer-chip {
   display: flex;
   align-items: center;
@@ -709,7 +710,31 @@ body {
   .layout-page {
     padding-left: 0 !important;
   }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  body, .layout-wrapper, .content-wrapper { background: #fff !important; }
+  .card { box-shadow: none !important; border: 1px solid #e5e7eb; break-inside: avoid; }
+  .container-p-y { padding-top: 0 !important; padding-bottom: 0 !important; }
+  .report-table { font-size: 11px; }
+  .row-link { cursor: default; }
 }
+.print-only { display: none; }
+
+/* Expenses: category picker */
+.cat-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+.cat-pick .btn { padding: .65rem .25rem; font-size: .8125rem; line-height: 1.2; }
+@media (min-width: 768px) { .cat-pick { grid-template-columns: repeat(6, 1fr); } }
+
+/* Dashboards */
+.dash-tabs, .report-pills { display: flex; flex-direction: row; flex-wrap: wrap; gap: .25rem; }
+.dash-tabs .nav-link, .report-pills .nav-link { flex: 0 0 auto; width: auto !important; }
+.dash-tabs .nav-link { padding: .45rem .9rem; }
+.report-pills .nav-link { padding: .3rem .7rem; font-size: .8125rem; }
+.chart-box { position: relative; width: 100%; }
+.report-table th { font-size: .75rem; text-transform: uppercase; letter-spacing: .02em; color: #697a8d; }
+.report-table td { vertical-align: middle; }
+.ageing-box { border: 1px solid #e4e6e8; border-radius: .5rem; padding: .5rem .75rem; min-width: 7.5rem; height: 100%; }
+.ageing-bad { border-color: #fecaca; background: #fef2f2; }
 
 /* Agreement terms checklist */
 .terms-pick { display: grid; gap: .5rem; }

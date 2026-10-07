@@ -474,11 +474,33 @@ const Docs = (() => {
       <button class="btn btn-sm btn-success" data-doc="share" ${dis}><i class="bx bxl-whatsapp me-1"></i>WhatsApp</button>`;
   }
 
-  function wireActions(root, getDoc) {
-    root.querySelectorAll('[data-doc]').forEach(btn => btn.addEventListener('click', () => {
-      const d = getDoc();
-      if (btn.dataset.doc === 'download') download(d, btn);
-      else share(d, btn);
+  function whenReady(ready) {
+    if (ready()) return Promise.resolve();
+    return new Promise(resolve => {
+      const off = Store.onChange(() => { if (ready()) { off(); resolve(); } });
+    });
+  }
+
+  /**
+   * ready(): false while the server hasn't sent the document number yet. A click
+   * then waits for it; the PDF downloads by itself, but sharing needs a fresh tap
+   * (browsers only open the share sheet or a new tab straight after a tap).
+   */
+  function wireActions(root, getDoc, ready) {
+    root.querySelectorAll('[data-doc]').forEach(btn => btn.addEventListener('click', async () => {
+      const kind = btn.dataset.doc;
+      const live = () => root.querySelector(`[data-doc="${kind}"]`) || btn;
+      if (ready && !ready()) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Waiting for number…';
+        await whenReady(ready);
+        const d = getDoc();
+        if (kind === 'download') download(d, live());
+        else UI.toast(`${d.title} ${d.meta && d.meta[0] ? d.meta[0][1] : ''} is ready.`, 'success', { label: 'Send on WhatsApp', onClick: () => share(getDoc(), live()) });
+        return;
+      }
+      if (kind === 'download') download(getDoc(), btn);
+      else share(getDoc(), btn);
     }));
   }
 

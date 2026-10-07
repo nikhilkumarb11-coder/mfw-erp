@@ -215,6 +215,7 @@ const UI = (() => {
 
   return {
     buildNav, route, render, onDataChange, renderSyncStatus, updateBadges, toast, confirm, skeleton,
+    current: () => current && current.name,
     showSkeleton: () => { $('#page-content').innerHTML = skeleton(); }
   };
 })();

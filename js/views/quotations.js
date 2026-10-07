@@ -285,7 +285,7 @@ Views.quotations = (() => {
             <small class="text-muted">${U.esc(p.name)} · ${U.inr(x.total)} · ${U.fmtDate(x.date)}</small>
           </div>
           <div class="d-flex gap-2 flex-wrap">
-            ${Docs.actionsHtml(waiting)}
+            ${Docs.actionsHtml()}
             ${converted ? '' : `
               <a href="#/quotations/${encodeURIComponent(id)}/edit" class="btn btn-sm btn-outline-primary"><i class="bx bx-edit-alt me-1"></i>Edit</a>
               <a href="#/quotations/${encodeURIComponent(id)}/convert" class="btn btn-sm btn-primary"><i class="bx bx-transfer me-1"></i>Convert to order</a>
@@ -297,7 +297,7 @@ Views.quotations = (() => {
       <div id="doc-preview"></div>`;
 
     Docs.preview(el.querySelector('#doc-preview'), Docs.quotation(x));
-    Docs.wireActions(el, () => Docs.quotation(Store.get('Quotations', id)));
+    Docs.wireActions(el, () => Docs.quotation(Store.get('Quotations', id)), () => !!(Store.get('Quotations', id) || {}).quote_no);
     const del = el.querySelector('#quote-delete');
     if (del) del.addEventListener('click', async () => {
       const ok = await UI.confirm({ title: 'Delete this quotation?', message: 'It will be removed from all lists.', confirmText: 'Delete' });

@@ -254,7 +254,7 @@ Views.agreements = (() => {
             <small class="text-muted">${U.esc(a.party_name)} · ${U.esc(a.venue || '')} ${a.event_date ? '· ' + U.fmtDate(a.event_date) : ''} · Order ${U.esc(o ? o.order_no : '')}</small>
           </div>
           <div class="d-flex gap-2 flex-wrap">
-            ${Docs.actionsHtml(waiting)}
+            ${Docs.actionsHtml()}
             <a href="#/agreements/${encodeURIComponent(id)}/edit" class="btn btn-sm btn-outline-primary"><i class="bx bx-edit-alt me-1"></i>Edit</a>
             <button class="btn btn-sm btn-outline-danger" id="agr-delete" aria-label="Delete"><i class="bx bx-trash"></i></button>
           </div>
@@ -264,7 +264,7 @@ Views.agreements = (() => {
       <div id="doc-preview"></div>`;
 
     Docs.preview(el.querySelector('#doc-preview'), Docs.agreement(a));
-    Docs.wireActions(el, () => Docs.agreement(Store.get('Agreements', id)));
+    Docs.wireActions(el, () => Docs.agreement(Store.get('Agreements', id)), () => !!(Store.get('Agreements', id) || {}).agreement_no);
     el.querySelector('#agr-delete').addEventListener('click', async () => {
       const ok = await UI.confirm({ title: 'Delete this agreement?', message: 'It will be removed from all lists. The order is not affected.', confirmText: 'Delete' });
       if (!ok) return;

@@ -221,7 +221,7 @@ Views.invoices = (() => {
             <small class="text-muted">${U.esc(inv.buyer_name)} · ${U.inr(inv.total)} · ${U.fmtDate(inv.date)} · ${inv.type === 'Custom' ? 'Custom' : `Order ${U.esc(order ? order.order_no : '')}`}</small>
           </div>
           <div class="d-flex gap-2 flex-wrap">
-            ${Docs.actionsHtml(waiting)}
+            ${Docs.actionsHtml()}
             ${!isVoid && inv.invoice_no ? '<button class="btn btn-sm btn-outline-danger" id="inv-void"><i class="bx bx-block me-1"></i>Void</button>' : ''}
           </div>
         </div>
@@ -231,7 +231,7 @@ Views.invoices = (() => {
       <div id="doc-preview"></div>`;
 
     Docs.preview(el.querySelector('#doc-preview'), Docs.invoice(inv));
-    Docs.wireActions(el, () => Docs.invoice(Store.get('Invoices', id)));
+    Docs.wireActions(el, () => Docs.invoice(Store.get('Invoices', id)), () => !!(Store.get('Invoices', id) || {}).invoice_no);
     const voidBtn = el.querySelector('#inv-void');
     if (voidBtn) voidBtn.addEventListener('click', () => askVoid(inv));
   }
@@ -285,12 +285,12 @@ Views.invoices = (() => {
             <h5 class="mb-0">Proforma invoice</h5>
             <small class="text-muted">Order ${U.esc(o.order_no || '')} · not numbered or saved — reflects the order as it is now</small>
           </div>
-          <div class="d-flex gap-2">${Docs.actionsHtml(o.order_no ? '' : 'Waiting for the order number…')}</div>
+          <div class="d-flex gap-2">${Docs.actionsHtml()}</div>
         </div>
       </div>
       <div id="doc-preview"></div>`;
     Docs.preview(el.querySelector('#doc-preview'), Docs.proforma(o));
-    Docs.wireActions(el, () => Docs.proforma(Store.get('Orders', orderId)));
+    Docs.wireActions(el, () => Docs.proforma(Store.get('Orders', orderId)), () => !!(Store.get('Orders', orderId) || {}).order_no);
   }
 
   return {

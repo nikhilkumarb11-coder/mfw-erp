@@ -69,6 +69,8 @@ Views.settings = {
             <div class="card-body" id="sync-card"></div>
           </div>
 
+          ${this.installCard()}
+
           <form class="card mb-4" id="device-form">
             <h5 class="card-header">This device</h5>
             <div class="card-body">
@@ -106,6 +108,27 @@ Views.settings = {
       UI.toast('Device name saved');
     });
     el.querySelector('#logout-btn').addEventListener('click', () => this.logout());
+    const installBtn = el.querySelector('#install-btn');
+    if (installBtn) installBtn.addEventListener('click', async () => {
+      if (await App.install.prompt()) return;
+      this.render(el);
+    });
+  },
+
+  installCard() {
+    const ins = App.install;
+    let body;
+    if (ins.isInstalled()) {
+      body = '<p class="small mb-0"><i class="bx bx-check-circle text-success me-1"></i>Running as an installed app on this device.</p>';
+    } else if (ins.canPrompt()) {
+      body = `<p class="small text-muted">Add the app to this device's home screen. It opens full screen and loads instantly, even on a weak connection.</p>
+        <button class="btn btn-primary w-100" id="install-btn"><i class="bx bx-download me-1"></i>Install app</button>`;
+    } else if (ins.isIos()) {
+      body = '<p class="small text-muted mb-0">In Safari, tap <b>Share</b> <i class="bx bx-share"></i> then <b>Add to Home Screen</b>.</p>';
+    } else {
+      body = '<p class="small text-muted mb-0">Open the browser menu (⋮) and choose <b>Install app</b> or <b>Add to Home screen</b>.</p>';
+    }
+    return `<div class="card mb-4"><h5 class="card-header">Install on this device</h5><div class="card-body">${body}</div></div>`;
   },
 
   renderTerms() {
@@ -171,9 +194,12 @@ Views.settings = {
     document.body.appendChild(el);
     const modal = new bootstrap.Modal(el);
     const form = el.querySelector('form');
+    let saved = false;
     form.addEventListener('submit', async e => {
       e.preventDefault();
+      if (saved) return;
       if (!form.checkValidity()) { form.classList.add('was-validated'); return; }
+      saved = true;
       const title = form.querySelector('#term-title').value.trim();
       const text = form.querySelector('#term-text').value.trim();
       modal.hide();

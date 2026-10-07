@@ -236,7 +236,7 @@ Views.payments = (() => {
             <small class="text-muted">${U.esc(info.name)} · ${U.inr(p.amount)} · ${U.fmtDate(p.date)}</small>
           </div>
           <div class="d-flex gap-2 flex-wrap">
-            ${Docs.actionsHtml(waiting)}
+            ${Docs.actionsHtml()}
             ${!isVoid && !invoice && p.receipt_no ? '<button class="btn btn-sm btn-outline-danger" id="pay-void"><i class="bx bx-block me-1"></i>Void</button>' : ''}
           </div>
         </div>
@@ -245,7 +245,7 @@ Views.payments = (() => {
       <div id="doc-preview"></div>`;
 
     Docs.preview(el.querySelector('#doc-preview'), Docs.receipt(p));
-    Docs.wireActions(el, () => Docs.receipt(Store.get('Payments', id)));
+    Docs.wireActions(el, () => Docs.receipt(Store.get('Payments', id)), () => !!(Store.get('Payments', id) || {}).receipt_no);
     const voidBtn = el.querySelector('#pay-void');
     if (voidBtn) voidBtn.addEventListener('click', async () => {
       const ok = await UI.confirm({

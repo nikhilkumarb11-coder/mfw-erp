@@ -12,7 +12,7 @@
  * full download (withData) and "batch" can carry the next pull (since).
  */
 
-const API_VERSION = '0.4.0';
+const API_VERSION = '0.5.0';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -50,6 +50,7 @@ const AUTO_NUMBERS = {
 const PRIVATE_FIELDS = { Customers: ['aadhar_no'] };
 
 const ORDER_STATUSES = ['Pending', 'In Production', 'Ready', 'Delivered', 'Cancelled'];
+const EXPENSE_CATEGORIES = ['Purchase', 'Rent', 'Travel', 'Salaries', 'Maintenance', 'Miscellaneous'];
 
 /**
  * Per-table server-side rules, run under the write lock with the merged row.
@@ -171,6 +172,17 @@ const VALIDATORS = {
   Terms: function (row) {
     if (row.is_deleted) return;
     if (!row.title && !row.term_text) throw invalid_('A term needs a title or text');
+  },
+  Expenses: function (row) {
+    if (row.is_deleted) return;
+    if (!row.date) throw invalid_('Date is required');
+    if (EXPENSE_CATEGORIES.indexOf(row.category) === -1) throw invalid_('Choose a category');
+    if (!(row.amount > 0)) throw invalid_('Amount must be more than 0');
+    if (row.category === 'Purchase') {
+      if (!row.vendor_name) throw invalid_('Vendor name is required for purchases');
+    } else {
+      row.vendor_name = '';
+    }
   },
   InvoiceItems: function (row, prev, ctx) {
     if (prev) throw invalid_("Invoice items can't be changed");
@@ -610,7 +622,65 @@ function onOpen() {
     .addItem('Run setup (safe to re-run)', 'setup')
     .addItem('Set app password', 'promptSetPassword')
     .addItem('Log out all devices', 'logoutAllDevices')
+    .addSeparator()
+    .addItem('Back up now', 'backupNow')
+    .addItem('Turn on daily backup', 'enableDailyBackup')
+    .addItem('Turn off daily backup', 'disableDailyBackup')
     .addToUi();
+}
+
+// ───────────────────────────── Backups ─────────────────────────────
+
+const BACKUP_FOLDER = 'MFW ERP Backups';
+const BACKUP_KEEP = 30;
+
+/** Copies the whole workbook into a private Drive folder and trims old copies. */
+function dailyBackup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty('SHEET_ID'));
+  const folders = DriveApp.getFoldersByName(BACKUP_FOLDER);
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(BACKUP_FOLDER);
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HHmm');
+  const copy = DriveApp.getFileById(ss.getId()).makeCopy(ss.getName() + ' backup ' + stamp, folder);
+
+  const files = [];
+  const it = folder.getFiles();
+  while (it.hasNext()) files.push(it.next());
+  files.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); });
+  files.slice(BACKUP_KEEP).forEach(function (f) { f.setTrashed(true); });
+
+  PropertiesService.getScriptProperties().setProperty('LAST_BACKUP', new Date().toISOString());
+  return copy;
+}
+
+function backupNow() {
+  const copy = dailyBackup();
+  notify_('Backup saved to Drive → ' + BACKUP_FOLDER + ' as "' + copy.getName() + '". The last ' + BACKUP_KEEP + ' copies are kept.');
+}
+
+function enableDailyBackup() {
+  PropertiesService.getScriptProperties().setProperty('SHEET_ID', SpreadsheetApp.getActiveSpreadsheet().getId());
+  removeBackupTriggers_();
+  ScriptApp.newTrigger('dailyBackup').timeBased().everyDays(1).atHour(2).create();
+  dailyBackup();
+  notify_('Daily backup is on. A copy of this Sheet is saved to Drive → ' + BACKUP_FOLDER + ' every night around 2 am; the last ' + BACKUP_KEEP + ' are kept. A first backup was made just now.');
+}
+
+function disableDailyBackup() {
+  const n = removeBackupTriggers_();
+  notify_(n ? 'Daily backup is off. Existing backups stay in Drive.' : 'Daily backup was not on.');
+}
+
+function removeBackupTriggers_() {
+  let n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'dailyBackup') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  return n;
+}
+
+function notify_(msg) {
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { /* run from the editor or a trigger */ }
 }
 
 /** Creates every tab with headers and text formatting. Re-running only adds what is missing. */

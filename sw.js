@@ -5,7 +5,7 @@
  * Bump VERSION on every release (together with ?v= in index.html); the old
  * cache is then dropped and open tabs are told a new version is ready.
  */
-const VERSION = '4';
+const VERSION = '6';
 const CACHE = 'mfw-app-v' + VERSION;
 const CDN_HOSTS = ['cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 

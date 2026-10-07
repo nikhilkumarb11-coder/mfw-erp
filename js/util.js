@@ -70,7 +70,8 @@ const U = (() => {
 
     inr(n) {
       const v = U.round2(n);
-      return '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
+      const s = '₹' + Math.abs(v).toLocaleString('en-IN', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
+      return v < 0 ? '-' + s : s;
     },
 
     /** Plain amount with Indian grouping and 2 decimals, for printed documents: 2,40,000.00 */

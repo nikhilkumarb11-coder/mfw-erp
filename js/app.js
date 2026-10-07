@@ -73,6 +73,31 @@ const App = (() => {
     navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service worker not registered', err));
   }
 
+  /** Chrome/Edge/Android offer installing; the prompt is kept for the button in Settings. */
+  let installPrompt = null;
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    installPrompt = e;
+    if (UI.current && UI.current() === 'settings') UI.render();
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    UI.toast('App installed. Open it from your home screen.');
+  });
+
+  const install = {
+    isInstalled: () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true,
+    canPrompt: () => !!installPrompt,
+    isIos: () => /iPhone|iPad|iPod/i.test(navigator.userAgent),
+    async prompt() {
+      if (!installPrompt) return false;
+      installPrompt.prompt();
+      const { outcome } = await installPrompt.userChoice;
+      installPrompt = null;
+      return outcome === 'accepted';
+    }
+  };
+
   async function boot() {
     registerWorker();
     applyBranding();
@@ -92,7 +117,7 @@ const App = (() => {
     Sync.start();
   }
 
-  return { boot, showLogin, showApp };
+  return { boot, showLogin, showApp, install };
 })();
 
 document.addEventListener('DOMContentLoaded', () => {

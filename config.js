@@ -5,7 +5,7 @@
  *         while trying things out, then switch to the real Sheet's URL.
  */
 window.APP_CONFIG = {
-  version: '0.4.0',
+  version: '0.5.0',
   companyName: 'Madeena Grand Fireworks',
   shortName: 'MGF',
   tagline: 'Business Manager',
