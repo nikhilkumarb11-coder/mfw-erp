@@ -75,7 +75,10 @@ Views.home = {
                 <div class="hero-greet">${greeting}</div>
                 <div class="hero-company text-truncate">${U.esc(Store.settings().company_name || APP_CONFIG.companyName)}</div>
               </div>
-              <span class="hero-logo"><img src="${APP_CONFIG.logo}" alt=""></span>
+              <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                <button type="button" class="btn btn-sm hero-btn-ghost hero-logout" id="home-logout"><i class="bx bx-log-out me-1"></i>Log out</button>
+                <span class="hero-logo"><img src="${APP_CONFIG.logo}" alt=""></span>
+              </div>
             </div>
             <div class="hero-body">
               <div>
@@ -143,6 +146,7 @@ Views.home = {
         </div>
       </div>
       </div>`;
+    el.querySelector('#home-logout').addEventListener('click', () => Views.settings.logout());
   }
 };
 

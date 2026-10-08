@@ -88,6 +88,7 @@ const Auth = (() => {
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(EXP_KEY);
       await Store.reset();
+      history.replaceState(null, '', '#/home');
       App.showLogin();
     },
 

@@ -1056,6 +1056,7 @@ body:has(.form-card) .fab-wrap { display: none; }
 .hero-btn:hover { background: #fff7ed; color: #9a3412; }
 .hero-btn-ghost { background: rgba(255, 255, 255, 0.14); color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4); }
 .hero-btn-ghost:hover { background: rgba(255, 255, 255, 0.24); color: #fff; }
+.hero-logout { min-height: 0 !important; padding: 0.35rem 0.75rem; font-size: 0.8rem; }
 .quick-card .card-body { padding: 1.25rem; }
 .section-title { font-size: 1rem; font-weight: 700; color: var(--ink); }
 .section-sub { font-size: 0.78rem; color: var(--muted); }
@@ -1240,8 +1241,7 @@ body:has(.form-card) .fab-wrap { display: none; }
 @media (max-width: 767.98px) {
   .home-hero { padding: 1.25rem; border-radius: 1.35rem; gap: 1rem; }
   .hero-amount { font-size: 2rem; margin-bottom: 0.5rem; }
-  .hero-logo { width: 44px; height: 44px; border-radius: 13px; }
-  .hero-logo img { width: 30px; height: 30px; }
+  .home-hero .hero-logo { display: none; }
   .quick-card .card-body { padding: 1rem 0.75rem 0.75rem; }
   .quick-card .section-title { padding-left: 0.5rem; }
   .action-tile { padding: 0.7rem 0.25rem; }

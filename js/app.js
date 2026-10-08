@@ -51,6 +51,7 @@ const App = (() => {
       UI.showSkeleton();
       await Store.load();
       await Sync.initial(data);
+      history.replaceState(null, '', '#/home');
       UI.route();
       UI.updateBadges();
       Sync.start();
