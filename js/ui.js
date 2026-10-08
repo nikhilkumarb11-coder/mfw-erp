@@ -16,21 +16,29 @@ const NAV = [
   { id: 'settings', label: 'Settings', icon: 'bx-cog' }
 ];
 
+/** Section id → its sidebar group name, shown under the page title. */
+const NAV_GROUP = (() => {
+  const out = { money: 'Business' };
+  let group = '';
+  NAV.forEach(i => { if (i.header) group = i.header; else if (group) out[i.id] = group; });
+  return out;
+})();
+
 const BOTTOM_NAV = [
   { id: 'home', label: 'Home', icon: 'bx-home-circle' },
   { id: 'customers', label: 'Customers', icon: 'bx-user' },
+  { id: 'new', label: 'New', icon: 'bx-plus', action: 'new' },
   { id: 'orders', label: 'Orders', icon: 'bx-package' },
-  { id: 'money', label: 'Money', icon: 'bx-rupee', match: ['money', 'payments', 'invoices', 'expenses'] },
-  { id: 'more', label: 'More', icon: 'bx-grid-alt', action: 'more' }
+  { id: 'more', label: 'More', icon: 'bx-grid-alt', action: 'more', rest: true }
 ];
 
 const QUICK_ACTIONS = [
-  { label: 'Customer', icon: 'bx-user-plus', href: '#/customers/new' },
-  { label: 'Order', icon: 'bx-package', href: '#/orders/new' },
-  { label: 'Payment', icon: 'bx-wallet', href: '#/payments/new' },
-  { label: 'Expense', icon: 'bx-money-withdraw', href: '#/expenses/new' },
-  { label: 'Quotation', icon: 'bx-file', href: '#/quotations/new' },
-  { label: 'Invoice', icon: 'bx-receipt', href: '#/invoices/new' }
+  { label: 'Order', icon: 'bx-package', href: '#/orders/new', tone: 'orange' },
+  { label: 'Payment', icon: 'bx-wallet', href: '#/payments/new', tone: 'green' },
+  { label: 'Customer', icon: 'bx-user-plus', href: '#/customers/new', tone: 'violet' },
+  { label: 'Quotation', icon: 'bx-file', href: '#/quotations/new', tone: 'blue' },
+  { label: 'Invoice', icon: 'bx-receipt', href: '#/invoices/new', tone: 'amber' },
+  { label: 'Expense', icon: 'bx-money-withdraw', href: '#/expenses/new', tone: 'rose' }
 ];
 
 /** Screen registry. Each view: { title, render(el, params), refreshOn?: [tables] } */
@@ -53,25 +61,39 @@ const UI = (() => {
            </a>
          </li>`).join('');
 
-    $('#bottom-nav').innerHTML = BOTTOM_NAV.map(item => `
-      <a href="${item.action ? 'javascript:void(0)' : '#/' + item.id}" class="bottom-nav-item" data-bottom="${item.id}" ${item.action ? `data-action="${item.action}"` : ''}>
-        <span class="position-relative"><i class="bx ${item.icon}"></i>
-          <span class="badge rounded-pill bg-danger bottom-nav-badge d-none" data-badge="${item.id}"></span></span>
-        <span>${item.label}</span>
-      </a>`).join('');
+    $('#bottom-nav').innerHTML = BOTTOM_NAV.map(item => item.action === 'new'
+      ? `<button type="button" class="bottom-nav-new" data-action="new" aria-label="Create new"><i class="bx bx-plus"></i></button>`
+      : `<a href="${item.action ? 'javascript:void(0)' : '#/' + item.id}" class="bottom-nav-item" data-bottom="${item.id}" ${item.action ? `data-action="${item.action}"` : ''}>
+          <span class="bottom-nav-icon"><i class="bx ${item.icon}"></i>
+            <span class="badge rounded-pill bg-danger bottom-nav-badge d-none" data-badge="${item.id}"></span></span>
+          <span>${item.label}</span>
+        </a>`).join('');
 
     $('#more-items').innerHTML = NAV.filter(i => !i.header).map(item => `
-      <a href="#/${item.id}" class="more-tile" data-bs-dismiss="offcanvas">
+      <a href="#/${item.id}" class="more-tile">
         <i class="bx ${item.icon}"></i><span>${item.label}</span>
+      </a>`).join('');
+
+    $('#new-items').innerHTML = QUICK_ACTIONS.map(a => `
+      <a href="${a.href}" class="action-tile">
+        <span class="action-icon tone-${a.tone}"><i class="bx ${a.icon}"></i></span><span>${a.label}</span>
       </a>`).join('');
 
     $('#fab-menu').innerHTML = QUICK_ACTIONS.map(a => `
       <li><a class="dropdown-item d-flex align-items-center gap-2 py-2" href="${a.href}">
-        <i class="bx ${a.icon} fs-5"></i><span>${a.label}</span></a></li>`).join('');
+        <span class="action-icon action-icon-sm tone-${a.tone}"><i class="bx ${a.icon}"></i></span><span>${a.label}</span></a></li>`).join('');
 
     document.querySelector('[data-action="more"]').addEventListener('click', () => {
       bootstrap.Offcanvas.getOrCreateInstance($('#more-sheet')).show();
     });
+    document.querySelector('[data-action="new"]').addEventListener('click', () => {
+      bootstrap.Offcanvas.getOrCreateInstance($('#new-sheet')).show();
+    });
+    // Bootstrap's data-bs-dismiss cancels link clicks, so the sheets close here instead.
+    ['#more-sheet', '#new-sheet'].forEach(sel => $(sel).addEventListener('click', e => {
+      if (e.target.closest('a[href^="#/"]')) bootstrap.Offcanvas.getOrCreateInstance($(sel)).hide();
+    }));
+    Search.init();
     document.querySelectorAll('.layout-menu-toggle').forEach(btn => btn.addEventListener('click', e => {
       e.preventDefault();
       document.documentElement.classList.toggle('layout-menu-expanded');
@@ -91,14 +113,21 @@ const UI = (() => {
     document.documentElement.classList.remove('layout-menu-expanded');
 
     document.querySelectorAll('[data-nav]').forEach(li => li.classList.toggle('active', li.dataset.nav === name));
+    const named = BOTTOM_NAV.filter(b => !b.action).map(b => b.id);
     document.querySelectorAll('[data-bottom]').forEach(a => {
       const def = BOTTOM_NAV.find(b => b.id === a.dataset.bottom);
-      a.classList.toggle('active', (def.match || [def.id]).includes(name));
+      a.classList.toggle('active', def.rest ? !named.includes(name) : def.id === name);
     });
 
     $('#page-title').textContent = view.title || '';
+    $('#page-sub').textContent = name === 'home' ? U.fmtDate(U.today()) : (NAV_GROUP[name] || '');
+    document.body.dataset.page = name;
     document.title = `${view.title ? view.title + ' · ' : ''}${APP_CONFIG.companyName}`;
     render();
+    const el = $('#page-content');
+    el.classList.remove('page-enter');
+    void el.offsetWidth;
+    el.classList.add('page-enter');
     window.scrollTo(0, 0);
   }
 
@@ -320,8 +349,8 @@ const Metrics = (() => {
         .sort((a, b) => a.days - b.days);
     },
 
-    thisMonth() {
-      const month = U.today().slice(0, 7);
+    /** Sales, collections and order count for a 'YYYY-MM' month; pending dues are across all months. */
+    thisMonth(month = U.today().slice(0, 7)) {
       const orders = Store.list('Orders').filter(o => o.status !== 'Cancelled');
       const monthOrders = orders.filter(o => String(o.order_date).startsWith(month));
       const customInvoices = Store.list('Invoices')
@@ -332,8 +361,112 @@ const Metrics = (() => {
         .filter(p => p.status !== 'Void' && String(p.date).startsWith(month))
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const paid = paidByOrder();
-      const pending = orders.reduce((s, o) => s + Math.max(0, (Number(o.total) || 0) - (paid.get(o.id) || 0)), 0);
-      return { orderCount: monthOrders.length, sales, collected, pending };
+      const dues = orders.map(o => Math.max(0, (Number(o.total) || 0) - (paid.get(o.id) || 0))).filter(d => d > 0);
+      const pending = dues.reduce((s, d) => s + d, 0);
+      return { orderCount: monthOrders.length, sales, collected, pending, pendingOrders: dues.length };
     }
   };
+})();
+
+/** Navbar / Ctrl+K search across customers, orders, quotations, invoices and receipts. */
+const Search = (() => {
+  const LIMIT = 6;
+  let modal = null;
+  let input = null;
+  let box = null;
+
+  function open() {
+    if (!Auth.isLoggedIn()) return;
+    input.value = '';
+    show('');
+    modal.show();
+  }
+
+  function find(q) {
+    const n = q.trim().toLowerCase();
+    if (!n) return [];
+    const digits = n.replace(/\D/g, '');
+    const has = (...vals) => vals.some(v => String(v || '').toLowerCase().includes(n));
+    const phone = v => digits.length >= 3 && String(v || '').includes(digits);
+    const custs = new Map(Store.list('Customers', { includeDeleted: true }).map(c => [c.id, c]));
+    const cname = id => (custs.get(id) || {}).name || '';
+    const recent = (a, b, f) => String(b[f] || '').localeCompare(String(a[f] || ''));
+
+    const groups = [
+      {
+        title: 'Customers', icon: 'bx-user', tone: 'violet',
+        rows: Store.list('Customers').filter(c => has(c.name, c.location, c.company_name) || phone(c.contact_no))
+          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+          .map(c => ({ href: `#/customers/${encodeURIComponent(c.id)}`, title: c.name, sub: [c.contact_no, c.location].filter(Boolean).join(' · ') }))
+      },
+      {
+        title: 'Orders', icon: 'bx-package', tone: 'orange',
+        rows: Store.list('Orders').filter(o => has(o.order_no, cname(o.customer_id)))
+          .sort((a, b) => recent(a, b, 'order_date'))
+          .map(o => ({ href: `#/orders/${encodeURIComponent(o.id)}`, title: `${o.order_no || 'New order'} · ${cname(o.customer_id)}`, sub: `${U.fmtDate(o.order_date)} · ${U.inr(o.total)} · ${o.status || ''}` }))
+      },
+      {
+        title: 'Quotations', icon: 'bx-file', tone: 'blue',
+        rows: Store.list('Quotations').filter(x => has(x.quote_no, x.prospect_name, cname(x.customer_id)) || phone(x.prospect_contact))
+          .sort((a, b) => recent(a, b, 'date'))
+          .map(x => ({ href: `#/quotations/${encodeURIComponent(x.id)}`, title: `${x.quote_no || 'Quotation'} · ${cname(x.customer_id) || x.prospect_name || ''}`, sub: `${U.fmtDate(x.date)} · ${U.inr(x.total)}` }))
+      },
+      {
+        title: 'Invoices', icon: 'bx-receipt', tone: 'amber',
+        rows: Store.list('Invoices').filter(i => has(i.invoice_no, i.buyer_name) || phone(i.buyer_contact))
+          .sort((a, b) => recent(a, b, 'date'))
+          .map(i => ({ href: `#/invoices/${encodeURIComponent(i.id)}`, title: `${i.invoice_no || 'Invoice'} · ${i.buyer_name || ''}`, sub: `${U.fmtDate(i.date)} · ${U.inr(i.total)}${i.status === 'Void' ? ' · Void' : ''}` }))
+      },
+      {
+        title: 'Receipts', icon: 'bx-wallet', tone: 'green',
+        rows: Store.list('Payments').filter(p => has(p.receipt_no))
+          .sort((a, b) => recent(a, b, 'date'))
+          .map(p => ({ href: `#/payments/${encodeURIComponent(p.id)}`, title: p.receipt_no, sub: `${U.fmtDate(p.date)} · ${U.inr(p.amount)}` }))
+      }
+    ];
+    return groups.filter(g => g.rows.length);
+  }
+
+  function show(q) {
+    if (!q.trim()) {
+      box.innerHTML = `<div class="search-empty"><i class="bx bx-search-alt"></i><div>Type a name, phone number, order, quotation, invoice or receipt number.</div></div>`;
+      return;
+    }
+    const groups = find(q);
+    if (!groups.length) {
+      box.innerHTML = `<div class="search-empty"><i class="bx bx-ghost"></i><div>Nothing matches “${U.esc(q.trim())}”.</div></div>`;
+      return;
+    }
+    box.innerHTML = groups.map(g => `
+      <div class="search-group">
+        <div class="search-group-title">${g.title}${g.rows.length > LIMIT ? ` <span>${LIMIT} of ${g.rows.length}</span>` : ''}</div>
+        ${g.rows.slice(0, LIMIT).map(r => `
+          <a href="${r.href}" class="search-row">
+            <span class="action-icon action-icon-sm tone-${g.tone}"><i class="bx ${g.icon}"></i></span>
+            <span class="min-w-0"><span class="search-row-title">${U.esc(r.title)}</span><span class="search-row-sub">${U.esc(r.sub)}</span></span>
+            <i class="bx bx-chevron-right ms-auto text-muted"></i>
+          </a>`).join('')}
+      </div>`).join('');
+  }
+
+  function init() {
+    const el = document.getElementById('search-modal');
+    modal = bootstrap.Modal.getOrCreateInstance(el);
+    input = document.getElementById('search-input');
+    box = document.getElementById('search-results');
+    document.querySelectorAll('[data-search-open]').forEach(b => b.addEventListener('click', open));
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); open(); }
+    });
+    el.addEventListener('shown.bs.modal', () => input.focus());
+    input.addEventListener('input', U.debounce(() => show(input.value), 120));
+    input.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      const first = box.querySelector('.search-row');
+      if (first) { location.hash = first.getAttribute('href'); modal.hide(); }
+    });
+    box.addEventListener('click', e => { if (e.target.closest('.search-row')) modal.hide(); });
+  }
+
+  return { init, open };
 })();

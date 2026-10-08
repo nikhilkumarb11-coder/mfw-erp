@@ -356,9 +356,8 @@ Views.quotations = (() => {
                 <div class="invalid-feedback">Enter the location.</div>
               </div>
               <div class="col-md-6">
-                <label class="form-label" for="c-aadhar">Aadhar number *</label>
-                <input class="form-control" id="c-aadhar" name="c_aadhar" inputmode="numeric" maxlength="12">
-                <div class="invalid-feedback" id="c-aadhar-error">Enter a valid 12-digit Aadhar number.</div>
+                <label class="form-label" for="c-aadhar">Aadhar number <span class="text-muted">(optional)</span></label>
+                <input class="form-control" id="c-aadhar" name="c_aadhar" inputmode="numeric" maxlength="40">
               </div>
               <div class="col-md-6">
                 <label class="form-label" for="c-company">Company name <span class="text-muted">(optional)</span></label>
@@ -403,7 +402,7 @@ Views.quotations = (() => {
       if (!newBox) return;
       const on = creatingCustomer();
       newBox.classList.toggle('d-none', !on);
-      ['c_name', 'c_contact', 'c_location', 'c_aadhar'].forEach(n => { form.elements[n].required = on; });
+      ['c_name', 'c_contact', 'c_location'].forEach(n => { form.elements[n].required = on; });
     };
     form.querySelectorAll('[name="cust_mode"]').forEach(r => r.addEventListener('change', setRequired));
     setRequired();
@@ -419,13 +418,6 @@ Views.quotations = (() => {
       const fail = msg => { errBox.textContent = msg; errBox.classList.remove('d-none'); };
       errBox.classList.add('d-none');
       const newCust = creatingCustomer();
-      if (newCust) {
-        const aadhar = form.elements.c_aadhar;
-        aadhar.setCustomValidity(U.isAadhar(aadhar.value.trim()) ? '' : 'invalid');
-        form.querySelector('#c-aadhar-error').textContent = /^\d{12}$/.test(aadhar.value.trim())
-          ? "This doesn't look like a valid Aadhar number. Please check the digits."
-          : 'Enter a valid 12-digit Aadhar number.';
-      }
       if (!form.checkValidity()) { form.classList.add('was-validated'); return; }
       const itemErr = editor.validate();
       if (itemErr) return fail(itemErr);

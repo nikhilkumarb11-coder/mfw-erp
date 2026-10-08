@@ -49,7 +49,16 @@ const Api = (() => {
     return json;
   }
 
-  return { call };
+  /** Fire-and-forget GET so Apps Script finishes its cold start while the user types. */
+  let warmedAt = 0;
+  function warm() {
+    const url = APP_CONFIG.apiUrl;
+    if (!url || Date.now() - warmedAt < 120000) return;
+    warmedAt = Date.now();
+    fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+  }
+
+  return { call, warm };
 })();
 
 const Auth = (() => {

@@ -17,13 +17,13 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Public+Sans:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css">
 
   <!-- Bump ?v= on every release so phones fetch the new files -->
-  <link rel="stylesheet" href="css/vendor/core.css?v=6">
-  <link rel="stylesheet" href="css/vendor/theme.css?v=6">
-  <link rel="stylesheet" href="css/app.css?v=6">
+  <link rel="stylesheet" href="css/vendor/core.css?v=7">
+  <link rel="stylesheet" href="css/vendor/theme.css?v=7">
+  <link rel="stylesheet" href="css/app.css?v=7">
 </head>
 <body>
 
@@ -59,8 +59,11 @@
       <aside id="layout-menu" class="layout-menu menu-vertical menu bg-menu-theme">
         <div class="app-brand">
           <a href="#/home" class="app-brand-link">
-            <img data-brand-logo alt="" class="app-brand-logo-img">
-            <span class="app-brand-text menu-text fw-bolder ms-2" data-brand-name></span>
+            <span class="brand-mark"><img data-brand-logo alt="" class="app-brand-logo-img"></span>
+            <span class="brand-words ms-2">
+              <span class="app-brand-text menu-text" data-brand-name></span>
+              <span class="app-brand-tag" data-brand-tagline></span>
+            </span>
           </a>
           <a href="javascript:void(0);" class="layout-menu-toggle menu-link text-large ms-auto d-block d-xl-none">
             <i class="bx bx-chevron-left bx-sm align-middle"></i>
@@ -75,10 +78,17 @@
             <a class="nav-item nav-link px-0" href="javascript:void(0)" aria-label="Menu"><i class="bx bx-menu bx-sm"></i></a>
           </div>
           <img data-brand-logo alt="" class="navbar-logo d-md-none me-2">
-          <h5 class="mb-0 page-title text-truncate" id="page-title"></h5>
-          <div class="navbar-nav-right d-flex align-items-center ms-auto">
+          <div class="page-heading min-w-0">
+            <h5 class="mb-0 page-title text-truncate" id="page-title"></h5>
+            <div class="page-sub d-none d-md-block" id="page-sub"></div>
+          </div>
+          <button type="button" class="search-trigger d-none d-md-flex" data-search-open>
+            <i class="bx bx-search"></i><span>Search customers, orders, invoices…</span><kbd>Ctrl K</kbd>
+          </button>
+          <div class="navbar-nav-right d-flex align-items-center ms-auto gap-2">
+            <button type="button" class="nav-icon-btn d-md-none" data-search-open aria-label="Search"><i class="bx bx-search"></i></button>
             <button type="button" id="sync-status" class="btn btn-sm sync-pill text-muted"><i class="bx bx-cloud"></i><span class="sync-label">Ready</span></button>
-            <a href="#/settings" class="btn btn-sm btn-icon btn-outline-secondary ms-2 rounded-circle" aria-label="Settings"><i class="bx bx-cog"></i></a>
+            <a href="#/settings" class="nav-icon-btn" aria-label="Settings"><i class="bx bx-cog"></i></a>
           </div>
         </nav>
 
@@ -103,38 +113,63 @@
 
     <!-- Mobile "More" sheet -->
     <div class="offcanvas offcanvas-bottom more-sheet" tabindex="-1" id="more-sheet" aria-labelledby="more-sheet-title">
+      <div class="sheet-grabber"></div>
       <div class="offcanvas-header">
         <h5 class="offcanvas-title" id="more-sheet-title">All sections</h5>
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
       </div>
       <div class="offcanvas-body"><div class="more-grid" id="more-items"></div></div>
     </div>
+
+    <!-- Mobile "+" sheet -->
+    <div class="offcanvas offcanvas-bottom more-sheet" tabindex="-1" id="new-sheet" aria-labelledby="new-sheet-title">
+      <div class="sheet-grabber"></div>
+      <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="new-sheet-title">Create new</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+      </div>
+      <div class="offcanvas-body"><div class="action-grid" id="new-items"></div></div>
+    </div>
+
+    <!-- Global search -->
+    <div class="modal fade search-modal" id="search-modal" tabindex="-1" aria-label="Search">
+      <div class="modal-dialog modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+          <div class="search-head">
+            <i class="bx bx-search"></i>
+            <input type="search" id="search-input" class="search-input" placeholder="Search name, phone, order or invoice no." autocomplete="off" enterkeyhint="search">
+            <button type="button" class="btn btn-sm btn-text-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+          <div class="modal-body p-0" id="search-results"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="toast-area" class="toast-container position-fixed p-3"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="config.js?v=6"></script>
-  <script src="js/util.js?v=6"></script>
-  <script src="js/db.js?v=6"></script>
-  <script src="js/store.js?v=6"></script>
-  <script src="js/api.js?v=6"></script>
-  <script src="js/ui.js?v=6"></script>
-  <script src="js/docs.js?v=6"></script>
-  <script src="js/reports.js?v=6"></script>
-  <script src="js/components/typeahead.js?v=6"></script>
-  <script src="js/components/items-editor.js?v=6"></script>
-  <script src="js/views/home.js?v=6"></script>
-  <script src="js/views/customers.js?v=6"></script>
-  <script src="js/views/orders.js?v=6"></script>
-  <script src="js/views/payments.js?v=6"></script>
-  <script src="js/views/invoices.js?v=6"></script>
-  <script src="js/views/quotations.js?v=6"></script>
-  <script src="js/views/agreements.js?v=6"></script>
-  <script src="js/views/expenses.js?v=6"></script>
-  <script src="js/views/dashboards.js?v=6"></script>
-  <script src="js/views/settings.js?v=6"></script>
-  <script src="js/views/placeholders.js?v=6"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="config.js?v=7"></script>
+  <script src="js/util.js?v=7"></script>
+  <script src="js/db.js?v=7"></script>
+  <script src="js/store.js?v=7"></script>
+  <script src="js/api.js?v=7"></script>
+  <script src="js/ui.js?v=7"></script>
+  <script src="js/docs.js?v=7"></script>
+  <script src="js/reports.js?v=7"></script>
+  <script src="js/components/typeahead.js?v=7"></script>
+  <script src="js/components/items-editor.js?v=7"></script>
+  <script src="js/views/home.js?v=7"></script>
+  <script src="js/views/customers.js?v=7"></script>
+  <script src="js/views/orders.js?v=7"></script>
+  <script src="js/views/payments.js?v=7"></script>
+  <script src="js/views/invoices.js?v=7"></script>
+  <script src="js/views/quotations.js?v=7"></script>
+  <script src="js/views/agreements.js?v=7"></script>
+  <script src="js/views/expenses.js?v=7"></script>
+  <script src="js/views/dashboards.js?v=7"></script>
+  <script src="js/views/settings.js?v=7"></script>
+  <script src="js/views/placeholders.js?v=7"></script>
+  <script src="js/app.js?v=7"></script>
 </body>
 </html>

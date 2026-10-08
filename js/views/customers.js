@@ -118,10 +118,9 @@ Views.customers = (() => {
               <div class="invalid-feedback">Enter the location.</div>
             </div>
             <div class="col-md-6">
-              <label class="form-label" for="f-aadhar">Aadhar number ${c ? '' : '*'}</label>
-              <input class="form-control" id="f-aadhar" name="aadhar_no" inputmode="numeric" maxlength="12" ${c ? '' : 'required'}
-                value="${c && !masked ? U.esc(c.aadhar_no) : ''}" placeholder="${masked ? `${U.esc(c.aadhar_no)} — leave blank to keep` : '12 digits'}">
-              <div class="invalid-feedback" id="aadhar-error">Enter a valid 12-digit Aadhar number.</div>
+              <label class="form-label" for="f-aadhar">Aadhar number <span class="text-muted">(optional)</span></label>
+              <input class="form-control" id="f-aadhar" name="aadhar_no" inputmode="numeric" maxlength="40"
+                value="${c && !masked ? U.esc(c.aadhar_no) : ''}" placeholder="${masked ? `${U.esc(c.aadhar_no)} — leave blank to keep` : ''}">
             </div>
             <div class="col-md-6">
               <label class="form-label" for="f-company">Company name <span class="text-muted">(optional)</span></label>
@@ -136,27 +135,15 @@ Views.customers = (() => {
       </form>`;
 
     const form = el.querySelector('#cust-form');
-    ['f-contact', 'f-aadhar'].forEach(fid => {
-      const inp = form.querySelector('#' + fid);
-      inp.addEventListener('input', () => { inp.value = inp.value.replace(/\D/g, ''); });
-    });
+    const contactInput = form.querySelector('#f-contact');
+    contactInput.addEventListener('input', () => { contactInput.value = contactInput.value.replace(/\D/g, ''); });
     form.addEventListener('submit', e => { e.preventDefault(); save(form, c, next); });
     if (!c) form.querySelector('#f-name').focus();
   }
 
   async function save(form, existing, next) {
     const v = name => form.elements[name].value.trim();
-    const aadharInput = form.elements.aadhar_no;
     const aadhar = v('aadhar_no');
-    aadharInput.setCustomValidity('');
-    form.querySelector('#aadhar-error').textContent = 'Enter a valid 12-digit Aadhar number.';
-    if (aadhar || !existing) {
-      if (!/^\d{12}$/.test(aadhar)) aadharInput.setCustomValidity('12 digits');
-      else if (!U.isAadhar(aadhar)) {
-        aadharInput.setCustomValidity('checksum');
-        form.querySelector('#aadhar-error').textContent = "This doesn't look like a valid Aadhar number. Please check the digits.";
-      }
-    }
     if (!form.checkValidity()) {
       form.classList.add('was-validated');
       const bad = form.querySelector(':invalid');

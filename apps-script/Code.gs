@@ -12,7 +12,7 @@
  * full download (withData) and "batch" can carry the next pull (since).
  */
 
-const API_VERSION = '0.5.0';
+const API_VERSION = '0.5.1';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -63,7 +63,6 @@ const VALIDATORS = {
     if (!row.name) throw invalid_('Customer name is required');
     if (!/^\d{10}$/.test(String(row.contact_no))) throw invalid_('Contact number must be 10 digits');
     if (!row.location) throw invalid_('Location is required');
-    if (!/^\d{12}$/.test(String(row.aadhar_no))) throw invalid_('Aadhar number must be 12 digits');
   },
   Settings: function (row) {
     if (!row.key) throw invalid_('Setting key is required');
@@ -331,6 +330,10 @@ function sha256Hex_(text) {
  * tables a batch already has in memory.
  */
 function sync_(since, ctx) {
+  if (!since) {
+    const cached = fullCacheGet_();
+    if (cached) return cached;
+  }
   const serverTime = nowIso_();
   const cutoff = since ? new Date(new Date(since).getTime() - SYNC_OVERLAP_MS).toISOString() : '';
   const props = props_();
@@ -344,7 +347,57 @@ function sync_(since, ctx) {
       .map(function (r) { return publicRow_(table, r); });
     if (rows.length) tables[table] = rows;
   });
-  return { ok: true, serverTime: serverTime, full: !since, tables: tables };
+  const res = { ok: true, serverTime: serverTime, full: !since, tables: tables };
+  if (!since) fullCachePut_(res);
+  return res;
+}
+
+// The full download (login, "Reload all data") is cached until the next write
+// changes a mod_ stamp. Cache values are capped at 100 KB, so it is stored in chunks.
+const FULL_CACHE_CHUNK = 90000;
+const FULL_CACHE_MAX_CHUNKS = 60;
+
+function fullCacheKey_() {
+  const props = props_();
+  const sig = Object.keys(SCHEMA).map(function (t) { return props['mod_' + t] || ''; }).join('|');
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, sig);
+  return 'full_' + Utilities.base64EncodeWebSafe(digest).replace(/=+$/, '');
+}
+
+function fullCacheGet_() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const key = fullCacheKey_();
+    const n = Number(cache.get(key) || 0);
+    if (!n) return null;
+    const keys = [];
+    for (let i = 0; i < n; i++) keys.push(key + '_' + i);
+    const parts = cache.getAll(keys);
+    let json = '';
+    for (let i = 0; i < n; i++) {
+      if (parts[keys[i]] == null) return null;
+      json += parts[keys[i]];
+    }
+    return JSON.parse(json);
+  } catch (e) {
+    return null;
+  }
+}
+
+function fullCachePut_(res) {
+  try {
+    const json = JSON.stringify(res);
+    const n = Math.ceil(json.length / FULL_CACHE_CHUNK);
+    if (n > FULL_CACHE_MAX_CHUNKS) return;
+    const key = fullCacheKey_();
+    const values = {};
+    for (let i = 0; i < n; i++) values[key + '_' + i] = json.slice(i * FULL_CACHE_CHUNK, (i + 1) * FULL_CACHE_CHUNK);
+    const cache = CacheService.getScriptCache();
+    cache.putAll(values, 21600);
+    cache.put(key, String(n), 21600);
+  } catch (e) {
+    // Too large or cache unavailable: logins just read the Sheet.
+  }
 }
 
 function getPrivate_(table, id) {

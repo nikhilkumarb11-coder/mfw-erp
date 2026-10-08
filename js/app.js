@@ -17,6 +17,7 @@ const App = (() => {
     if (!APP_CONFIG.apiUrl) {
       $('#login-setup-hint').classList.remove('d-none');
     }
+    Api.warm();
     setTimeout(() => $('#login-password').focus(), 50);
   }
 
@@ -39,8 +40,12 @@ const App = (() => {
     err.classList.add('d-none');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Checking…';
+    const slow = setTimeout(() => {
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Waking up the server…';
+    }, 4000);
     try {
       const data = await Auth.login($('#login-password').value);
+      clearTimeout(slow);
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading your data…';
       showApp();
       UI.showSkeleton();
@@ -54,6 +59,7 @@ const App = (() => {
       err.textContent = ex.message;
       err.classList.remove('d-none');
     } finally {
+      clearTimeout(slow);
       btn.disabled = false;
       btn.innerHTML = 'Log in';
     }
@@ -103,6 +109,7 @@ const App = (() => {
     applyBranding();
     UI.buildNav();
     $('#login-form').addEventListener('submit', onLoginSubmit);
+    $('#login-password').addEventListener('input', () => Api.warm());
 
     if (!Auth.isLoggedIn()) {
       showLogin();
