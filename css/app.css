@@ -1186,16 +1186,40 @@ body:has(.form-card) .fab-wrap { display: none; }
 @media (min-width: 768px) {
   body[data-page="home"] .fab-wrap { display: none; }
 }
-/* Desktop Home fits the window; long lists scroll inside their cards. */
+/* Desktop Home fits the window; only Delivery reminders / Top dues scroll. */
 @media (min-width: 992px) and (min-height: 600px) {
-  body[data-page="home"] .layout-page {
-    height: 100vh;
+  /* Stop the document itself from scrolling — flex min-height:auto was growing past 100dvh. */
+  html:has(body[data-page="home"]),
+  body[data-page="home"] {
     height: 100dvh;
+    max-height: 100dvh;
     overflow: hidden;
   }
-  body[data-page="home"] .content-wrapper {
+  body[data-page="home"] #app-shell,
+  body[data-page="home"] .layout-wrapper,
+  body[data-page="home"] .layout-container {
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 0 !important;
+    overflow: hidden;
+  }
+  body[data-page="home"] .layout-page {
+    display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
-    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0 !important;
+    overflow: hidden;
+  }
+  body[data-page="home"] .layout-navbar {
+    flex: 0 0 auto;
+  }
+  body[data-page="home"] .content-wrapper {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0 !important;
     overflow: hidden;
     padding-bottom: 0 !important;
   }
@@ -1203,7 +1227,7 @@ body:has(.form-card) .fab-wrap { display: none; }
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
-    min-height: 0;
+    min-height: 0 !important;
     max-width: 100%;
     overflow: hidden;
     padding-top: 1.1rem !important;
@@ -1212,8 +1236,9 @@ body:has(.form-card) .fab-wrap { display: none; }
   .home-fit {
     flex: 1 1 auto;
     min-height: 0;
+    height: 100%;
     overflow: hidden;
-    grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
   }
   .home-top {
     min-height: 0;
@@ -1232,15 +1257,21 @@ body:has(.form-card) .fab-wrap { display: none; }
     width: 100%;
     min-height: 0;
     max-height: 100%;
+    overflow: hidden;
   }
-  .home-kpis { min-height: 0; }
+  .home-kpis { min-height: 0; flex-shrink: 0; }
   .home-kpis > [class*="col-"] { display: flex; }
   .home-kpis .kpi-card { width: 100%; min-width: 0; }
-  .home-lists { min-height: 0; }
+  .home-lists {
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
   .home-lists > [class*="col-"] {
     display: flex;
     height: 100%;
     max-height: 100%;
+    min-height: 0;
   }
   .home-lists .card {
     display: flex;
@@ -1250,23 +1281,32 @@ body:has(.form-card) .fab-wrap { display: none; }
     min-height: 0;
     overflow: hidden;
   }
-  .home-lists .feed { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .home-lists .feed {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
   .home-lists .empty-state { flex: 1 1 auto; justify-content: center; padding: 1rem; }
-  .home-hero { padding: 1.1rem 1.4rem; gap: 0.7rem; overflow: auto; }
+  .home-hero { padding: 1.1rem 1.4rem; gap: 0.7rem; }
   .hero-logo { width: 42px; height: 42px; border-radius: 12px; }
   .hero-logo img { width: 28px; height: 28px; }
   .hero-amount { font-size: 1.95rem; margin-bottom: 0.4rem; }
   .hero-spark svg { height: 60px; }
   .kpi-card .action-icon { width: 36px; height: 36px; border-radius: 11px; font-size: 1.15rem; }
   .kpi-card .spark { height: 30px; }
-  .quick-card .card-body { padding: 1rem 1.1rem; }
+  .quick-card .card-body {
+    padding: 1rem 1.1rem;
+    overflow: hidden;
+  }
   .quick-card .section-title { margin-bottom: 0.5rem !important; }
   .quick-card .action-icon { width: 38px; height: 38px; border-radius: 12px; font-size: 1.2rem; }
   .action-tile { padding: 0.55rem 0.2rem; gap: 0.35rem; font-size: 0.72rem; }
   .kpi-card { padding: 0.85rem 1rem; }
   .kpi-label { margin-top: 0.5rem; }
   .kpi-value { font-size: 1.35rem; }
-  .section-head { padding: 0.7rem 1.1rem; }
+  .section-head { flex: 0 0 auto; padding: 0.7rem 1.1rem; }
   .section-head .section-sub { display: none; }
   .feed-row { padding: 0.5rem 0.75rem; }
 }
