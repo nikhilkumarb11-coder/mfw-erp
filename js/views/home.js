@@ -67,8 +67,8 @@ Views.home = {
 
     el.innerHTML = `
       <div class="home-fit">
-      <div class="row g-3">
-        <div class="col-lg-8">
+      <div class="row g-3 home-top">
+        <div class="col-lg-8 home-top-main">
           <section class="home-hero h-100">
             <div class="hero-top">
               <div class="min-w-0">
@@ -76,12 +76,12 @@ Views.home = {
                 <div class="hero-company text-truncate">${U.esc(Store.settings().company_name || APP_CONFIG.companyName)}</div>
               </div>
               <div class="d-flex align-items-center gap-2 flex-shrink-0">
-                <button type="button" class="btn btn-sm hero-btn-ghost hero-logout" id="home-logout"><i class="bx bx-log-out me-1"></i>Log out</button>
+                <button type="button" class="btn btn-sm hero-btn-ghost hero-logout" id="home-logout"><i class="bx bx-log-out me-1"></i><span class="hero-logout-label">Log out</span></button>
                 <span class="hero-logo"><img src="${APP_CONFIG.logo}" alt=""></span>
               </div>
             </div>
             <div class="hero-body">
-              <div>
+              <div class="min-w-0">
                 <div class="hero-label">Sales in ${monthName}</div>
                 <div class="hero-amount">${U.inr(m.sales)}</div>
                 <div class="hero-meta">
@@ -91,13 +91,13 @@ Views.home = {
               </div>
               <div class="hero-spark d-none d-md-block">${spark(series.map(s => s.sales), 'white', 260, 72)}</div>
             </div>
-            <div class="hero-actions d-none d-md-flex">
+            <div class="hero-actions d-none d-md-flex flex-wrap">
               <a href="#/orders/new" class="btn hero-btn"><i class="bx bx-plus me-1"></i>New order</a>
               <a href="#/payments/new" class="btn hero-btn hero-btn-ghost"><i class="bx bx-wallet me-1"></i>Record payment</a>
             </div>
           </section>
         </div>
-        <div class="col-lg-4">
+        <div class="col-lg-4 home-top-side">
           <div class="card quick-card h-100">
             <div class="card-body">
               <div class="section-title mb-3">Quick actions</div>
@@ -112,7 +112,7 @@ Views.home = {
         </div>
       </div>
 
-      <div class="row g-3">
+      <div class="row g-3 home-kpis">
         ${kpi('Collected', U.inr(m.collected), `Last month ${U.inr(last.collected)}`, 'bx-wallet', 'green', series.map(s => s.collected))}
         ${kpi('Orders', m.orderCount, `Last month ${last.orderCount}`, 'bx-package', 'orange', series.map(s => s.orderCount))}
         ${kpi('Pending dues', U.inr(m.pending), `Across ${m.pendingOrders} order${m.pendingOrders === 1 ? '' : 's'}`, 'bx-time-five', 'amber')}
