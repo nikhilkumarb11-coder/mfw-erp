@@ -124,7 +124,12 @@ Views.settings = {
       body = `<p class="small text-muted">Add the app to this device's home screen. It opens full screen and loads instantly, even on a weak connection.</p>
         <button class="btn btn-primary w-100" id="install-btn"><i class="bx bx-download me-1"></i>Install app</button>`;
     } else if (ins.isIos()) {
-      body = '<p class="small text-muted mb-0">In Safari, tap <b>Share</b> <i class="bx bx-share"></i> then <b>Add to Home Screen</b>.</p>';
+      body = `<p class="small text-muted mb-2">iPhone does not show an Install button. Add the app from Safari:</p>
+        <ol class="small text-muted mb-0 ps-3">
+          <li class="mb-1">Open this site in <b>Safari</b> (not Chrome or an in-app browser).</li>
+          <li class="mb-1">Tap <b>Share</b> <i class="bx bx-share"></i> at the bottom.</li>
+          <li>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+        </ol>`;
     } else {
       body = '<p class="small text-muted mb-0">Open the browser menu (⋮) and choose <b>Install app</b> or <b>Add to Home screen</b>.</p>';
     }
