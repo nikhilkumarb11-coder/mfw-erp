@@ -12,7 +12,7 @@
  * full download (withData) and "batch" can carry the next pull (since).
  */
 
-const API_VERSION = '0.5.2';
+const API_VERSION = '0.5.3';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -247,7 +247,16 @@ function paidForOrder_(ctx, orderId) {
 // ───────────────────────────── HTTP entry points ─────────────────────────────
 
 function doGet() {
-  return json_({ ok: true, app: 'MFW ERP API', version: API_VERSION });
+  return json_({
+    ok: true,
+    app: 'MFW ERP API',
+    version: API_VERSION,
+    // Lets you confirm the live deploy actually includes Order/Event fields.
+    features: {
+      orderKind: SCHEMA.Orders.indexOf('kind') !== -1,
+      quotationTerms: SCHEMA.Quotations.indexOf('terms_text') !== -1
+    }
+  });
 }
 
 function doPost(e) {
@@ -598,22 +607,54 @@ function getSheet_(name) {
   return sh;
 }
 
+/**
+ * Appends any SCHEMA columns missing from row 1. Returns the names that were added.
+ * Uses the last non-empty header so blank trailing columns don't push new fields out of view.
+ */
+function ensureColumns_(sh, needed) {
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  const raw = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h == null ? '' : h).trim();
+  });
+  let n = raw.length;
+  while (n > 0 && !raw[n - 1]) n--;
+  const existing = raw.slice(0, n);
+  const missing = needed.filter(function (h) { return existing.indexOf(h) === -1; });
+  if (!missing.length) return { headers: existing.length ? existing : needed.slice(), added: [] };
+
+  const startCol = existing.length + 1;
+  // A1 range avoids any ambiguity with getRange(row, column, numRows, numColumns).
+  const startA1 = columnLetter_(startCol) + '1';
+  const endA1 = columnLetter_(startCol + missing.length - 1) + '1';
+  sh.getRange(startA1 + ':' + endA1).setValues([missing]).setFontWeight('bold').setBackground('#fde8dc');
+  missing.forEach(function (h, i) {
+    const col = columnLetter_(startCol + i);
+    sh.getRange(col + '2:' + col).setNumberFormat(formatFor_(h));
+  });
+  SpreadsheetApp.flush();
+  return { headers: existing.concat(missing), added: missing };
+}
+
 /** addMissing: append columns added to SCHEMA since setup ran (only while holding the lock). */
 function readTable_(table, addMissing) {
   const sh = getSheet_(table);
-  const values = sh.getDataRange().getValues();
-  const headers = (values[0] || []).map(function (h) { return String(h || '').trim(); });
-  if (addMissing && headers.length) {
-    const missing = headersFor_(table).filter(function (h) { return headers.indexOf(h) === -1; });
-    if (missing.length) {
-      sh.getRange(1, headers.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold').setBackground('#fde8dc');
-      missing.forEach(function (h, i) {
-        const col = columnLetter_(headers.length + i + 1);
-        sh.getRange(col + '2:' + col).setNumberFormat(formatFor_(h));
-      });
-      Array.prototype.push.apply(headers, missing);
-    }
+  const needed = headersFor_(table);
+  let headers;
+  if (addMissing) {
+    headers = ensureColumns_(sh, needed).headers;
+  } else {
+    const lastCol = Math.max(sh.getLastColumn(), 1);
+    const raw = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+      return String(h == null ? '' : h).trim();
+    });
+    let n = raw.length;
+    while (n > 0 && !raw[n - 1]) n--;
+    headers = raw.slice(0, n);
   }
+  // Re-read after possible header append so row values line up with headers.
+  const lastCol = Math.max(headers.length, 1);
+  const lastRow = Math.max(sh.getLastRow(), 1);
+  const values = sh.getRange(1, 1, lastRow, lastCol).getValues();
   const tz = Session.getScriptTimeZone();
   const rows = [];
   const index = {};
@@ -703,6 +744,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('MFW ERP')
     .addItem('Run setup (safe to re-run)', 'setup')
+    .addItem('Repair missing columns', 'repairColumns')
     .addItem('Set app password', 'promptSetPassword')
     .addItem('Log out all devices', 'logoutAllDevices')
     .addSeparator()
@@ -710,6 +752,41 @@ function onOpen() {
     .addItem('Turn on daily backup', 'enableDailyBackup')
     .addItem('Turn off daily backup', 'disableDailyBackup')
     .addToUi();
+}
+
+/**
+ * Forces SCHEMA columns onto every tab and shows what was added.
+ * Use this after deploying a Code.gs that introduces new fields (kind, terms_text, …).
+ */
+function repairColumns() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lines = [];
+  let total = 0;
+  Object.keys(SCHEMA).forEach(function (name) {
+    let sh = ss.getSheetByName(name);
+    if (!sh) sh = ss.insertSheet(name);
+    const res = ensureColumns_(sh, headersFor_(name));
+    if (res.added.length) {
+      total += res.added.length;
+      lines.push(name + ': +' + res.added.join(', '));
+    }
+  });
+  let sh = ss.getSheetByName('Counters');
+  if (!sh) sh = ss.insertSheet('Counters');
+  const counters = ensureColumns_(sh, ['key', 'last_seq']);
+  if (counters.added.length) {
+    total += counters.added.length;
+    lines.push('Counters: +' + counters.added.join(', '));
+  }
+  SpreadsheetApp.flush();
+  const msg = total
+    ? ('Added ' + total + ' column(s):\n\n' + lines.join('\n') + '\n\nAPI ' + API_VERSION)
+    : ('All columns already present.\n\nAPI ' + API_VERSION +
+      '\nOrders.kind in SCHEMA: ' + (SCHEMA.Orders.indexOf('kind') !== -1) +
+      '\nQuotations.terms_text in SCHEMA: ' + (SCHEMA.Quotations.indexOf('terms_text') !== -1));
+  try { SpreadsheetApp.getUi().alert('Repair columns', msg, SpreadsheetApp.getUi().ButtonSet.OK); }
+  catch (e) { Logger.log(msg); }
+  ss.toast(total ? ('Added ' + total + ' columns') : 'Columns OK', 'MFW ERP', 8);
 }
 
 // ───────────────────────────── Backups ─────────────────────────────
@@ -771,15 +848,14 @@ function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tabs = Object.keys(SCHEMA).map(function (t) { return { name: t, headers: headersFor_(t) }; });
   tabs.push({ name: 'Counters', headers: ['key', 'last_seq'] });
+  const addedLines = [];
 
   tabs.forEach(function (tab) {
     let sh = ss.getSheetByName(tab.name);
     if (!sh) sh = ss.insertSheet(tab.name);
-    const lastCol = sh.getLastColumn();
-    const existing = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String) : [];
-    const missing = tab.headers.filter(function (h) { return existing.indexOf(h) === -1; });
-    if (missing.length) sh.getRange(1, existing.length + 1, 1, missing.length).setValues([missing]);
-    const headers = existing.concat(missing);
+    const res = ensureColumns_(sh, tab.headers);
+    if (res.added.length) addedLines.push(tab.name + ': +' + res.added.join(', '));
+    const headers = res.headers.length ? res.headers : tab.headers;
     sh.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#fde8dc');
     sh.setFrozenRows(1);
 
@@ -798,10 +874,12 @@ function setup() {
   seedSettings_({ company_name: 'Madeena Grand Fireworks' });
   seedTerms_();
   getTokenSecret_();
+  SpreadsheetApp.flush();
 
   // A toast, not ui.alert(): an alert blocks a run started from the editor until someone clicks OK in the Sheet.
   const tz = Session.getScriptTimeZone();
-  const msg = 'Setup complete.' +
+  const msg = 'Setup complete (API ' + API_VERSION + ').' +
+    (addedLines.length ? ' Added: ' + addedLines.join(' · ') + '.' : ' Columns already up to date.') +
     (tz !== 'Asia/Kolkata' ? ' Warning: script time zone is ' + tz + ' — set it to Asia/Kolkata in Project Settings.' : '') +
     (PropertiesService.getScriptProperties().getProperty('PASSWORD_HASH') ? '' : ' Next: MFW ERP → Set app password.');
   ss.toast(msg, 'MFW ERP', 15);

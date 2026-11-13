@@ -31,6 +31,11 @@ apps-script/Code.gs   backend (copy of what runs inside the Sheet)
 When `Code.gs` changes later: paste the new code, save, then **Deploy → Manage deployments → Edit (pencil) →
 Version: New version → Deploy**. The URL stays the same.
 
+After deploying schema changes (e.g. Order/Event `kind`, quotation `terms_text`):
+1. Reload the Sheet so the **MFW ERP** menu refreshes.
+2. **MFW ERP → Repair missing columns** (or **Run setup**). You should get an alert listing added columns.
+3. Open the Web App URL in a browser — JSON should show `"version":"0.5.3"` and `"features":{"orderKind":true,"quotationTerms":true}`.
+
 ### 2. GitHub Pages
 1. Create a repository on GitHub (public, unless you have a paid plan).
 2. From this folder:
