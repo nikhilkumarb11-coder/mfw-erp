@@ -12,7 +12,7 @@
  * full download (withData) and "batch" can carry the next pull (since).
  */
 
-const API_VERSION = '0.5.3';
+const API_VERSION = '0.5.4';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -602,8 +602,8 @@ function headersFor_(table) {
 }
 
 function getSheet_(name) {
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
-  if (!sh) throw error_('NOT_SET_UP', 'Sheet tab "' + name + '" missing. Run MFW ERP → Run setup.');
+  const sh = activeSpreadsheetOrThrow_().getSheetByName(name);
+  if (!sh) throw error_('NOT_SET_UP', 'Sheet tab "' + name + '" missing. Run MFW ERP → Repair missing columns.');
   return sh;
 }
 
@@ -754,12 +754,34 @@ function onOpen() {
     .addToUi();
 }
 
+function activeSpreadsheetOrThrow_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss) return ss;
+  const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+  if (id) return SpreadsheetApp.openById(id);
+  throw new Error(
+    'No spreadsheet linked to this script.\n\n' +
+    'You must open Apps Script FROM the sheet:\n' +
+    'MFW ERP - Test → Extensions → Apps Script\n\n' +
+    'Do not paste Code.gs into an "Untitled project".'
+  );
+}
+
 /**
  * Forces SCHEMA columns onto every tab and shows what was added.
- * Use this after deploying a Code.gs that introduces new fields (kind, terms_text, …).
+ * Deploying alone does NOT add columns — run this (menu or editor ▶ Run).
  */
 function repairColumns() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = activeSpreadsheetOrThrow_();
+  PropertiesService.getScriptProperties().setProperty('SHEET_ID', ss.getId());
+
+  if (SCHEMA.Orders.indexOf('kind') === -1 || SCHEMA.Quotations.indexOf('terms_text') === -1) {
+    throw new Error(
+      'This Code.gs is missing Order/Event fields (API ' + API_VERSION + ').\n' +
+      'Paste the full file from GitHub main, Save, Deploy a New version, then run repairColumns again.'
+    );
+  }
+
   const lines = [];
   let total = 0;
   Object.keys(SCHEMA).forEach(function (name) {
@@ -769,6 +791,8 @@ function repairColumns() {
     if (res.added.length) {
       total += res.added.length;
       lines.push(name + ': +' + res.added.join(', '));
+    } else {
+      lines.push(name + ': OK');
     }
   });
   let sh = ss.getSheetByName('Counters');
@@ -778,15 +802,36 @@ function repairColumns() {
     total += counters.added.length;
     lines.push('Counters: +' + counters.added.join(', '));
   }
+
+  // Hard guarantee for the two fields that were missing in testing.
+  total += forceHeader_(ss.getSheetByName('Orders'), 'kind');
+  total += forceHeader_(ss.getSheetByName('Quotations'), 'kind');
+  total += forceHeader_(ss.getSheetByName('Quotations'), 'terms_text');
+
   SpreadsheetApp.flush();
-  const msg = total
-    ? ('Added ' + total + ' column(s):\n\n' + lines.join('\n') + '\n\nAPI ' + API_VERSION)
-    : ('All columns already present.\n\nAPI ' + API_VERSION +
-      '\nOrders.kind in SCHEMA: ' + (SCHEMA.Orders.indexOf('kind') !== -1) +
-      '\nQuotations.terms_text in SCHEMA: ' + (SCHEMA.Quotations.indexOf('terms_text') !== -1));
+  const msg = 'Sheet: ' + ss.getName() + '\nAPI ' + API_VERSION +
+    '\nAdded this run: ' + total +
+    '\n\n' + lines.join('\n');
+  Logger.log(msg);
   try { SpreadsheetApp.getUi().alert('Repair columns', msg, SpreadsheetApp.getUi().ButtonSet.OK); }
-  catch (e) { Logger.log(msg); }
-  ss.toast(total ? ('Added ' + total + ' columns') : 'Columns OK', 'MFW ERP', 8);
+  catch (e) { /* run from editor */ }
+  ss.toast(total ? ('Added ' + total + ' columns') : 'Columns OK — check Orders col after notes', 'MFW ERP', 10);
+}
+
+/** If header name is missing, append it. Returns 1 if added, else 0. */
+function forceHeader_(sh, name) {
+  if (!sh) return 0;
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  const raw = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h == null ? '' : h).trim();
+  });
+  if (raw.indexOf(name) !== -1) return 0;
+  let n = raw.length;
+  while (n > 0 && !raw[n - 1]) n--;
+  const col = n + 1;
+  sh.getRange(columnLetter_(col) + '1').setValue(name).setFontWeight('bold').setBackground('#fde8dc');
+  sh.getRange(columnLetter_(col) + '2:' + columnLetter_(col)).setNumberFormat('@');
+  return 1;
 }
 
 // ───────────────────────────── Backups ─────────────────────────────
