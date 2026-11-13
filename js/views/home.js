@@ -49,7 +49,7 @@ Views.home = {
           <span class="date-tile date-${tone}"><b>${Number(d)}</b><small>${Reports.MONTHS[Number(mo) - 1]}</small></span>
           <span class="min-w-0 flex-grow-1">
             <span class="feed-title">${U.esc(c ? c.name : 'Unknown customer')}</span>
-            <span class="feed-sub">${U.esc(order.order_no || '')} · Balance ${U.inr(Metrics.balanceFor(order))}</span>
+            <span class="feed-sub">${Metrics.isEvent(order) ? 'Event' : 'Order'} ${U.esc(order.order_no || '')} · Balance ${U.inr(Metrics.balanceFor(order))}</span>
           </span>
           <span class="chip chip-${tone}">${when}</span>
         </a>`;
@@ -85,8 +85,8 @@ Views.home = {
                 <div class="hero-label">Sales in ${monthName}</div>
                 <div class="hero-amount">${U.inr(m.sales)}</div>
                 <div class="hero-meta">
-                  <span><i class="bx bx-wallet"></i> Collected ${U.inr(m.collected)}</span>
-                  <span><i class="bx bx-history"></i> Last month ${U.inr(last.sales)}</span>
+                  <span><i class="bx bx-package"></i> Orders ${m.orderOnlyCount} · ${U.inr(m.orderOnlySales)}</span>
+                  <span><i class="bx bx-calendar-event"></i> Events ${m.eventCount} · ${U.inr(m.eventSales)}</span>
                 </div>
               </div>
               <div class="hero-spark d-none d-md-block">${spark(series.map(s => s.sales), 'white', 260, 72)}</div>
@@ -114,7 +114,7 @@ Views.home = {
 
       <div class="row g-3 home-kpis">
         ${kpi('Collected', U.inr(m.collected), `Last month ${U.inr(last.collected)}`, 'bx-wallet', 'green', series.map(s => s.collected))}
-        ${kpi('Orders', m.orderCount, `Last month ${last.orderCount}`, 'bx-package', 'orange', series.map(s => s.orderCount))}
+        ${kpi('Orders + events', m.orderCount, `${m.orderOnlyCount} orders · ${m.eventCount} events`, 'bx-package', 'orange', series.map(s => s.orderCount))}
         ${kpi('Pending dues', U.inr(m.pending), `Across ${m.pendingOrders} order${m.pendingOrders === 1 ? '' : 's'}`, 'bx-time-five', 'amber')}
         ${kpi('Deliveries due', reminders.length, overdue ? `<span class="text-danger">${overdue} overdue</span>` : `Next ${APP_CONFIG.reminderDays} days`, 'bx-calendar-event', 'blue')}
       </div>

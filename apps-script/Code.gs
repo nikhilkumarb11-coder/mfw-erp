@@ -12,7 +12,7 @@
  * full download (withData) and "batch" can carry the next pull (since).
  */
 
-const API_VERSION = '0.5.1';
+const API_VERSION = '0.5.2';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -21,12 +21,12 @@ const COMMON_FIELDS = ['id', 'created_at', 'created_by', 'updated_at', 'updated_
 
 const SCHEMA = {
   Customers:      ['name', 'contact_no', 'location', 'aadhar_no', 'company_name'],
-  Orders:         ['order_no', 'customer_id', 'order_date', 'delivery_date', 'total', 'status', 'source_quotation_id', 'notes'],
+  Orders:         ['order_no', 'kind', 'customer_id', 'order_date', 'delivery_date', 'total', 'status', 'source_quotation_id', 'notes'],
   OrderItems:     ['order_id', 'item_name', 'qty', 'rate', 'amount', 'sort'],
   Payments:       ['receipt_no', 'order_id', 'date', 'amount', 'note', 'status'],
   Invoices:       ['invoice_no', 'type', 'order_id', 'buyer_name', 'buyer_contact', 'buyer_address', 'date', 'total', 'status', 'void_reason'],
   InvoiceItems:   ['invoice_id', 'item_name', 'qty', 'rate', 'amount', 'sort'],
-  Quotations:     ['quote_no', 'customer_id', 'prospect_name', 'prospect_contact', 'date', 'total', 'status', 'converted_order_id', 'notes'],
+  Quotations:     ['quote_no', 'kind', 'customer_id', 'prospect_name', 'prospect_contact', 'date', 'total', 'status', 'converted_order_id', 'notes', 'terms_text'],
   QuotationItems: ['quotation_id', 'item_name', 'qty', 'rate', 'amount', 'sort'],
   Agreements:     ['agreement_no', 'order_id', 'date', 'terms_text', 'total', 'party_name', 'party_contact', 'party_address', 'venue', 'event_date', 'remarks'],
   Terms:          ['title', 'term_text', 'sort', 'default_checked', 'active'],
@@ -50,7 +50,12 @@ const AUTO_NUMBERS = {
 const PRIVATE_FIELDS = { Customers: ['aadhar_no'] };
 
 const ORDER_STATUSES = ['Pending', 'In Production', 'Ready', 'Delivered', 'Cancelled'];
+const ORDER_KINDS = ['Order', 'Event'];
 const EXPENSE_CATEGORIES = ['Purchase', 'Rent', 'Travel', 'Salaries', 'Maintenance', 'Miscellaneous'];
+
+function isEventKind_(kind) {
+  return String(kind || 'Order') === 'Event';
+}
 
 /**
  * Per-table server-side rules, run under the write lock with the merged row.
@@ -72,8 +77,13 @@ const VALIDATORS = {
       if (prev && !prev.is_deleted && paidForOrder_(ctx, row.id) > 0) throw invalid_("An order with payments can't be deleted. Cancel it instead.");
       return;
     }
+    if (!row.kind) row.kind = 'Order';
+    if (ORDER_KINDS.indexOf(row.kind) === -1) throw invalid_('Type must be Order or Event');
+    if (prev && String(prev.kind || 'Order') !== String(row.kind || 'Order')) {
+      throw invalid_("An order's type can't be changed after it is saved");
+    }
     if (!row.customer_id) throw invalid_('Customer is required');
-    if (!row.delivery_date) throw invalid_('Delivery date is required');
+    if (!row.delivery_date) throw invalid_(isEventKind_(row.kind) ? 'Event date is required' : 'Delivery date is required');
     if (!row.status) row.status = 'Pending';
     if (ORDER_STATUSES.indexOf(row.status) === -1) throw invalid_('Unknown status: ' + row.status);
     if (row.total < 0) throw invalid_("Total can't be negative");
@@ -82,11 +92,17 @@ const VALIDATORS = {
       if (row.total + 0.001 < paid) throw invalid_('Total ₹' + row.total + ' is less than ₹' + paid + ' already paid');
     }
   },
-  OrderItems: function (row) {
+  OrderItems: function (row, prev, ctx) {
     if (row.is_deleted) return;
     if (!row.order_id) throw invalid_('Item is missing its order');
-    if (!row.item_name) throw invalid_('Item name is required');
-    if (!(row.qty > 0)) throw invalid_('Quantity must be more than 0');
+    if (!row.item_name) throw invalid_(isEventKind_((findRow_(ctx, 'Orders', row.order_id) || {}).kind) ? 'Description is required' : 'Item name is required');
+    const order = findRow_(ctx, 'Orders', row.order_id);
+    if (order && isEventKind_(order.kind)) {
+      row.qty = 1;
+      row.amount = round2_(Number(row.rate) || 0);
+    } else if (!(row.qty > 0)) {
+      throw invalid_('Quantity must be more than 0');
+    }
   },
   Payments: function (row, prev, ctx) {
     if (prev) {
@@ -144,6 +160,8 @@ const VALIDATORS = {
       throw invalid_('This quotation was already converted to an order');
     }
     if (row.is_deleted) return;
+    if (!row.kind) row.kind = 'Order';
+    if (ORDER_KINDS.indexOf(row.kind) === -1) throw invalid_('Type must be Order or Event');
     if (!row.status) row.status = 'Open';
     if (['Open', 'Converted'].indexOf(row.status) === -1) throw invalid_('Unknown status: ' + row.status);
     if (row.status === 'Converted' && !row.converted_order_id) throw invalid_('Converted quotation needs its order');
@@ -153,12 +171,17 @@ const VALIDATORS = {
   },
   QuotationItems: function (row, prev, ctx) {
     if (row.is_deleted) return;
+    const q = findRow_(ctx, 'Quotations', row.quotation_id);
     if (!prev) {
-      const q = findRow_(ctx, 'Quotations', row.quotation_id);
       if (!q || q.is_deleted) throw invalid_('Quotation not found');
     }
-    if (!row.item_name) throw invalid_('Item name is required');
-    if (!(row.qty > 0)) throw invalid_('Quantity must be more than 0');
+    if (!row.item_name) throw invalid_(isEventKind_((q || {}).kind) ? 'Description is required' : 'Item name is required');
+    if (q && isEventKind_(q.kind)) {
+      row.qty = 1;
+      row.amount = round2_(Number(row.rate) || 0);
+    } else if (!(row.qty > 0)) {
+      throw invalid_('Quantity must be more than 0');
+    }
   },
   Agreements: function (row, prev, ctx) {
     if (row.is_deleted) return;
@@ -525,6 +548,13 @@ function sanitize_(table, data) {
 }
 
 function assignNumber_(table, row) {
+  // Orders and Events share the Orders tab but use separate counters: O-0001 / E-0001.
+  if (table === 'Orders') {
+    const event = isEventKind_(row.kind);
+    const seq = nextSeq_(event ? 'EVT' : 'ORD');
+    row.order_no = (event ? 'E-' : 'O-') + ('000' + seq).slice(-4);
+    return;
+  }
   const auto = AUTO_NUMBERS[table];
   if (!auto) return;
   if (auto.monthly) {

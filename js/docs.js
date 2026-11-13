@@ -149,15 +149,25 @@ const Docs = (() => {
     const c = q.customer_id ? Store.get('Customers', q.customer_id) : null;
     const total = U.round2(q.total);
     const name = c ? c.name : q.prospect_name;
+    const event = String(q.kind || 'Order') === 'Event';
+    const agreementTerms = parseTerms(q.terms_text);
     return {
-      kind: 'quotation', size: 'a4', title: 'Quotation', hideRates: true,
+      kind: 'quotation', size: 'a4',
+      title: event ? 'Event Quotation' : 'Quotation',
+      hideRates: !event,
+      eventLines: event,
       fileName: `Quotation-${q.quote_no || 'pending'}`,
-      meta: [['Quote No', q.quote_no || 'Pending'], ['Date', U.fmtDate(q.date)]],
+      meta: [
+        ['Quote No', q.quote_no || 'Pending'],
+        ['Type', event ? 'Event' : 'Order'],
+        ['Date', U.fmtDate(q.date)]
+      ],
       to: c ? customerTo(c) : { name: q.prospect_name, phone: q.prospect_contact },
       items: itemsFor('QuotationItems', 'quotation_id', q.id),
       totals: [['Total Amount', total, 'grand']],
       words: total,
       note: q.notes,
+      agreementTerms,
       phone: c ? c.contact_no : q.prospect_contact,
       message: `Dear ${name}, please find our quotation ${q.quote_no || ''} for ₹${U.money(total)}. We look forward to working with you.`
     };
@@ -267,7 +277,15 @@ const Docs = (() => {
           </tbody>
         </table>`;
     const half = Math.ceil(d.items.length / 2);
-    const items = d.hideRates
+    const items = d.eventLines
+      ? `<table class="doc-items">
+          <colgroup><col style="width:52px"><col><col style="width:140px"></colgroup>
+          <thead><tr><th class="doc-sno">S.No</th><th>Description</th><th class="num">Price (Rs.)</th></tr></thead>
+          <tbody>${d.items.map((it, i) => `
+            <tr><td class="doc-sno">${i + 1}</td><td>${U.esc(it.item_name)}</td><td class="num">${U.money(it.amount)}</td></tr>`).join('')}
+          </tbody>
+        </table>`
+      : d.hideRates
       ? (d.items.length > 8
         ? `<div class="doc-items-2col">${qtyTable(d.items.slice(0, half), 0)}${qtyTable(d.items.slice(half), half)}</div>`
         : qtyTable(d.items, 0))
@@ -318,9 +336,14 @@ const Docs = (() => {
           ${totalsHtml(d)}
         </div>
         ${d.note ? `<div class="doc-note">${U.esc(d.note)}</div>` : ''}
+        ${d.agreementTerms && d.agreementTerms.length ? `
+          <div class="doc-agr-terms">
+            <div class="doc-agr-terms-title">Terms &amp; Conditions</div>
+            <ol>${d.agreementTerms.map(t => `<li>${t.title ? `<b>${U.esc(t.title)}</b><br>` : ''}${U.esc(t.text)}</li>`).join('')}</ol>
+          </div>` : ''}
         <div class="doc-spacer"></div>
         <div class="doc-bottom">
-          <div class="doc-terms">${d.terms && p.terms.length ? `
+          <div class="doc-terms">${!(d.agreementTerms && d.agreementTerms.length) && d.terms && p.terms.length ? `
             <div class="doc-terms-title">Terms &amp; Conditions:</div>
             <ol>${p.terms.map(t => `<li>${U.esc(t)}</li>`).join('')}</ol>` : ''}
           </div>

@@ -9,19 +9,27 @@ Views.orders = (() => {
   const STATUS_COLOR = { 'Pending': 'secondary', 'In Production': 'info', 'Ready': 'primary', 'Delivered': 'success', 'Cancelled': 'dark' };
   const PAGE = 100;
   let filter = 'Active';
+  let kindFilter = 'All';
   let query = '';
   let shown = PAGE;
 
+  const isEvent = o => Metrics.isEvent(o);
+  const kindOf = o => isEvent(o) ? 'Event' : 'Order';
+  const dateLabel = o => isEvent(o) ? 'Event date' : 'Delivery date';
   const statusBadge = s => `<span class="badge bg-label-${STATUS_COLOR[s] || 'secondary'}">${U.esc(s || 'Pending')}</span>`;
+  const kindBadge = o => isEvent(o)
+    ? '<span class="badge bg-label-warning">Event</span>'
+    : '<span class="badge bg-label-primary">Order</span>';
   const orderNo = o => o.order_no ? U.esc(o.order_no) : '<span class="text-muted fst-italic">Saving…</span>';
   const customerName = id => { const c = Store.get('Customers', id); return c ? c.name : 'Unknown customer'; };
 
   function dueText(o) {
     if (!o.delivery_date || Metrics.CLOSED.includes(o.status)) return '';
     const d = U.daysUntil(o.delivery_date);
+    const noun = isEvent(o) ? 'Event' : 'Due';
     if (d < 0) return `<span class="text-danger fw-semibold">${-d}d overdue</span>`;
-    if (d === 0) return '<span class="text-warning fw-semibold">Due today</span>';
-    if (d <= APP_CONFIG.reminderDays) return `<span class="text-warning">Due in ${d}d</span>`;
+    if (d === 0) return `<span class="text-warning fw-semibold">${noun} today</span>`;
+    if (d <= APP_CONFIG.reminderDays) return `<span class="text-warning">${noun} in ${d}d</span>`;
     return '';
   }
 
@@ -39,8 +47,8 @@ Views.orders = (() => {
         <div class="d-flex justify-content-between gap-2">
           <div class="min-w-0">
             <div class="fw-semibold text-truncate">${showCustomer ? U.esc(customerName(o.customer_id)) + ' · ' : ''}${orderNo(o)}</div>
-            <small class="text-muted">Delivery ${U.fmtDate(o.delivery_date)} ${dueText(o) ? '· ' + dueText(o) : ''}</small>
-            <div class="mt-1 d-flex gap-1 flex-wrap">${statusBadge(o.status)} ${payBadge(o, paidMap)}</div>
+            <small class="text-muted">${dateLabel(o)} ${U.fmtDate(o.delivery_date)} ${dueText(o) ? '· ' + dueText(o) : ''}</small>
+            <div class="mt-1 d-flex gap-1 flex-wrap">${kindBadge(o)} ${statusBadge(o.status)} ${payBadge(o, paidMap)}</div>
           </div>
           <div class="text-end flex-shrink-0">
             <div class="fw-semibold">${U.inr(o.total)}</div>
@@ -54,13 +62,17 @@ Views.orders = (() => {
 
   function renderList(el) {
     const tabs = ['Active', 'Due soon', 'All', ...STATUSES];
+    const kinds = ['All', 'Order', 'Event'];
     el.innerHTML = `
       <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
         <div class="input-group input-group-merge flex-grow-1 list-search">
           <span class="input-group-text"><i class="bx bx-search"></i></span>
           <input type="search" class="form-control" id="order-search" placeholder="Search customer, number or order no." value="${U.esc(query)}">
         </div>
-        <a href="#/orders/new" class="btn btn-primary"><i class="bx bx-plus me-1"></i>New order</a>
+        <a href="#/orders/new" class="btn btn-primary"><i class="bx bx-plus me-1"></i>New</a>
+      </div>
+      <div class="filter-pills mb-2" id="order-kinds">
+        ${kinds.map(t => `<button type="button" class="btn btn-sm ${t === kindFilter ? 'btn-primary' : 'btn-outline-secondary'}" data-kind="${t}">${t === 'All' ? 'All types' : t + 's'}</button>`).join('')}
       </div>
       <div class="filter-pills mb-3" id="order-filters">
         ${tabs.map(t => `<button type="button" class="btn btn-sm ${t === filter ? 'btn-primary' : 'btn-outline-secondary'}" data-filter="${t}">${t}</button>`).join('')}
@@ -68,6 +80,17 @@ Views.orders = (() => {
       <div id="order-results"></div>`;
     const input = el.querySelector('#order-search');
     input.addEventListener('input', U.debounce(() => { query = input.value; shown = PAGE; updateList(el); }, 120));
+    el.querySelector('#order-kinds').addEventListener('click', e => {
+      const btn = e.target.closest('[data-kind]');
+      if (!btn) return;
+      kindFilter = btn.dataset.kind;
+      shown = PAGE;
+      el.querySelectorAll('[data-kind]').forEach(b => {
+        b.classList.toggle('btn-primary', b === btn);
+        b.classList.toggle('btn-outline-secondary', b !== btn);
+      });
+      updateList(el);
+    });
     el.querySelector('#order-filters').addEventListener('click', e => {
       const btn = e.target.closest('[data-filter]');
       if (!btn) return;
@@ -91,12 +114,14 @@ Views.orders = (() => {
 
     let list = Store.list('Orders').filter(o => {
       const open = !Metrics.CLOSED.includes(o.status);
+      if (kindFilter === 'Order' && isEvent(o)) return false;
+      if (kindFilter === 'Event' && !isEvent(o)) return false;
       if (filter === 'Active' && !open) return false;
       if (filter === 'Due soon' && !(open && o.delivery_date && U.daysUntil(o.delivery_date) <= APP_CONFIG.reminderDays)) return false;
       if (STATUSES.includes(filter) && o.status !== filter) return false;
       if (!q) return true;
       const c = customers.get(o.customer_id) || {};
-      return [c.name, c.contact_no, c.company_name, o.order_no].some(v => String(v || '').toLowerCase().includes(q));
+      return [c.name, c.contact_no, c.company_name, o.order_no, kindOf(o)].some(v => String(v || '').toLowerCase().includes(q));
     });
     list.sort(filter === 'Active' || filter === 'Due soon'
       ? (a, b) => String(a.delivery_date).localeCompare(String(b.delivery_date))
@@ -107,7 +132,7 @@ Views.orders = (() => {
     if (!total) {
       box.innerHTML = `<div class="card"><div class="card-body text-center text-muted py-5">
         <i class="bx bx-package display-6 d-block mb-2"></i>
-        ${q || filter !== 'All' ? 'No orders match.' : 'No orders yet.'}</div></div>`;
+        ${q || filter !== 'All' || kindFilter !== 'All' ? 'No matches.' : 'No orders or events yet.'}</div></div>`;
       return;
     }
 
@@ -115,13 +140,14 @@ Views.orders = (() => {
       <div class="card d-none d-md-block">
         <div class="table-responsive">
           <table class="table table-hover mb-0">
-            <thead><tr><th>Order</th><th>Customer</th><th>Order date</th><th>Delivery</th><th>Status</th>
+            <thead><tr><th>No.</th><th>Type</th><th>Customer</th><th>Date</th><th>Delivery / Event</th><th>Status</th>
               <th class="text-end">Total</th><th class="text-end">Balance</th><th>Payment</th></tr></thead>
             <tbody>${list.map(o => {
               const c = customers.get(o.customer_id);
               const bal = Metrics.balanceFor(o, paid);
               return `<tr class="row-link" data-href="#/orders/${encodeURIComponent(o.id)}">
                 <td class="fw-semibold">${orderNo(o)}</td>
+                <td>${kindBadge(o)}</td>
                 <td>${U.esc(c ? c.name : 'Unknown')}</td>
                 <td>${U.fmtDate(o.order_date)}</td>
                 <td>${U.fmtDate(o.delivery_date)}<div class="small">${dueText(o)}</div></td>
@@ -135,7 +161,7 @@ Views.orders = (() => {
       </div>
       <div class="card d-md-none"><div class="list-group list-group-flush">${list.map(o => listItem(o, paid)).join('')}</div></div>
       ${total > shown ? `<div class="text-center mt-3"><button class="btn btn-outline-secondary" id="order-more">Show more (${total - shown} left)</button></div>` : ''}
-      <p class="text-muted small text-center mt-3 mb-0">${total} order${total === 1 ? '' : 's'}</p>`;
+      <p class="text-muted small text-center mt-3 mb-0">${total} record${total === 1 ? '' : 's'}</p>`;
 
     box.querySelectorAll('.row-link').forEach(tr => tr.addEventListener('click', () => { location.hash = tr.dataset.href; }));
     const more = box.querySelector('#order-more');
@@ -151,16 +177,27 @@ Views.orders = (() => {
     const paidSoFar = o ? Metrics.paidFor(o.id) : 0;
     let customerId = o ? o.customer_id : (presetCustomerId && Store.get('Customers', presetCustomerId) ? presetCustomerId : '');
     const back = o ? `#/orders/${encodeURIComponent(o.id)}` : (presetCustomerId ? `#/customers/${encodeURIComponent(presetCustomerId)}` : '#/orders');
+    const kind = o ? kindOf(o) : 'Order';
+    const event = kind === 'Event';
 
     el.innerHTML = `
       <form class="card form-card" id="order-form" novalidate>
         <div class="card-header d-flex align-items-center gap-2">
           <a href="${back}" class="btn btn-icon btn-sm btn-text-secondary" aria-label="Back"><i class="bx bx-arrow-back"></i></a>
-          <h5 class="mb-0">${o ? `Edit order ${o.order_no ? U.esc(o.order_no) : ''}` : 'New order'}</h5>
+          <h5 class="mb-0">${o ? `Edit ${kind.toLowerCase()} ${o.order_no ? U.esc(o.order_no) : ''}` : 'New order / event'}</h5>
         </div>
         <div class="card-body">
           <div class="row g-3">
-            <div class="col-12">
+            <div class="col-12 col-md-4">
+              <label class="form-label" for="f-kind">Type *</label>
+              <select class="form-select" id="f-kind" ${o ? 'disabled' : 'name="kind"'}>
+                <option value="Order" ${!event ? 'selected' : ''}>Order</option>
+                <option value="Event" ${event ? 'selected' : ''}>Event</option>
+              </select>
+              ${o ? `<input type="hidden" name="kind" value="${U.esc(kind)}">` : ''}
+              ${o ? '<div class="form-text">Type can\'t be changed after save.</div>' : ''}
+            </div>
+            <div class="col-12" id="customer-wrap">
               <label class="form-label" for="f-customer">Customer *</label>
               <div id="customer-picked" class="customer-chip d-none"></div>
               <div id="customer-search-box">
@@ -169,13 +206,13 @@ Views.orders = (() => {
               </div>
             </div>
             <div class="col-6 col-md-4">
-              <label class="form-label" for="f-order-date">Order date</label>
+              <label class="form-label" for="f-order-date"><span data-date-noun>Order</span> date</label>
               <input type="date" class="form-control" id="f-order-date" name="order_date" required value="${U.esc(o ? o.order_date : U.today())}">
             </div>
             <div class="col-6 col-md-4">
-              <label class="form-label" for="f-delivery">Delivery date *</label>
+              <label class="form-label" for="f-delivery" id="f-delivery-label">Delivery date *</label>
               <input type="date" class="form-control" id="f-delivery" name="delivery_date" required value="${U.esc(o ? o.delivery_date : '')}">
-              <div class="invalid-feedback">Choose the delivery date.</div>
+              <div class="invalid-feedback" id="f-delivery-error">Choose the delivery date.</div>
             </div>
             <div class="col-12 col-md-4">
               <label class="form-label" for="f-status">Status</label>
@@ -185,7 +222,7 @@ Views.orders = (() => {
             </div>
           </div>
 
-          <h6 class="mt-4 mb-2">Items</h6>
+          <h6 class="mt-4 mb-2" id="items-heading">Items</h6>
           <div id="items-editor"></div>
 
           <div class="row g-3 mt-2 align-items-end">
@@ -214,7 +251,7 @@ Views.orders = (() => {
         </div>
         <div class="card-footer sticky-save d-flex gap-2 justify-content-end">
           <a href="${back}" class="btn btn-outline-secondary">Cancel</a>
-          <button type="submit" class="btn btn-primary flex-grow-1 flex-md-grow-0"><i class="bx bx-save me-1"></i>Save order</button>
+          <button type="submit" class="btn btn-primary flex-grow-1 flex-md-grow-0"><i class="bx bx-save me-1"></i>Save</button>
         </div>
       </form>`;
 
@@ -223,6 +260,21 @@ Views.orders = (() => {
     const searchBox = form.querySelector('#customer-search-box');
     const custInput = form.querySelector('#f-customer');
     const advanceInput = form.querySelector('#f-advance');
+    const kindSelect = form.querySelector('#f-kind');
+
+    function currentKind() {
+      return (form.elements.kind && form.elements.kind.value) || kindSelect.value || 'Order';
+    }
+
+    function applyKindLabels() {
+      const ev = currentKind() === 'Event';
+      form.querySelector('#f-delivery-label').textContent = ev ? 'Event date *' : 'Delivery date *';
+      form.querySelector('#f-delivery-error').textContent = ev ? 'Choose the event date.' : 'Choose the delivery date.';
+      form.querySelector('#items-heading').textContent = ev ? 'Lines' : 'Items';
+      const noun = form.querySelector('[data-date-noun]');
+      if (noun) noun.textContent = ev ? 'Event' : 'Order';
+      editor.setMode(ev ? 'event' : 'order');
+    }
 
     function showCustomer() {
       const c = customerId ? Store.get('Customers', customerId) : null;
@@ -264,7 +316,11 @@ Views.orders = (() => {
         preview.innerHTML = adv > 0 ? `Balance after advance: <b class="${adv > total ? 'text-danger' : ''}">${U.inr(total - adv)}</b>` : '';
       }
     }
-    const editor = ItemsEditor.mount(form.querySelector('#items-editor'), { items, onChange: updateTotals });
+    const editor = ItemsEditor.mount(form.querySelector('#items-editor'), {
+      items, mode: event ? 'event' : 'order', onChange: updateTotals
+    });
+    if (!o) kindSelect.addEventListener('change', applyKindLabels);
+    applyKindLabels();
     if (advanceInput) advanceInput.addEventListener('input', () => updateTotals(editor.total()));
 
     form.addEventListener('submit', e => {
@@ -295,7 +351,10 @@ Views.orders = (() => {
 
     const items = editor.getItems();
     const total = editor.total();
+    const kind = (form.elements.kind && form.elements.kind.value) || 'Order';
+    const event = kind === 'Event';
     const fields = {
+      kind,
       customer_id: customerId,
       order_date: form.elements.order_date.value,
       delivery_date: form.elements.delivery_date.value,
@@ -303,26 +362,29 @@ Views.orders = (() => {
       total,
       notes: form.elements.notes.value.trim()
     };
-    if (fields.delivery_date < fields.order_date) return fail('Delivery date is before the order date.');
+    if (fields.delivery_date < fields.order_date) {
+      return fail(event ? 'Event date is before the date.' : 'Delivery date is before the order date.');
+    }
 
+    const noun = event ? 'Event' : 'Order';
     const entries = [];
     if (!existing) {
       const advanceInput = form.querySelector('#f-advance');
       const advance = U.round2(advanceInput.value);
       if (advance < 0) return fail("Advance can't be negative.");
-      if (advance > total) return fail(`Advance (${U.inr(advance)}) is more than the order total (${U.inr(total)}).`);
+      if (advance > total) return fail(`Advance (${U.inr(advance)}) is more than the total (${U.inr(total)}).`);
       const orderId = U.uuid();
       entries.push(['Orders', { id: orderId, ...fields, source_quotation_id: '' }]);
       items.forEach((it, i) => entries.push(['OrderItems', { order_id: orderId, item_name: it.item_name, qty: it.qty, rate: it.rate, amount: it.amount, sort: i }]));
       if (advance > 0) entries.push(['Payments', { order_id: orderId, date: fields.order_date, amount: advance, note: 'Advance', status: '' }]);
       await Store.saveMany(entries);
-      UI.toast(advance > 0 ? 'Order saved with advance payment' : 'Order saved');
+      UI.toast(advance > 0 ? `${noun} saved with advance payment` : `${noun} saved`);
       location.hash = `#/orders/${encodeURIComponent(orderId)}`;
       return;
     }
 
     const paid = Metrics.paidFor(existing.id);
-    if (total < paid) return fail(`The new total ${U.inr(total)} is less than the ${U.inr(paid)} already paid. Adjust the items first.`);
+    if (total < paid) return fail(`The new total ${U.inr(total)} is less than the ${U.inr(paid)} already paid. Adjust the lines first.`);
 
     entries.push(['Orders', { id: existing.id, ...fields }]);
     const before = new Map(itemsOf(existing.id).map(i => [i.id, i]));
@@ -340,7 +402,7 @@ Views.orders = (() => {
     before.forEach(prev => entries.push(['OrderItems', { id: prev.id, is_deleted: true }]));
 
     await Store.saveMany(entries);
-    UI.toast('Order updated');
+    UI.toast(`${noun} updated`);
     location.hash = `#/orders/${encodeURIComponent(existing.id)}`;
   }
 
@@ -359,6 +421,8 @@ Views.orders = (() => {
     const balance = U.round2(total - paid);
     const state = Metrics.paymentState(total, paid);
     const cancelled = o.status === 'Cancelled';
+    const event = isEvent(o);
+    const noun = event ? 'Event' : 'Order';
     const due = dueText(o);
     const invoice = Metrics.activeInvoiceFor(id);
     const invoiceChanged = invoice && Views.invoices.changedSince(invoice, o);
@@ -376,24 +440,37 @@ Views.orders = (() => {
         <i class="bx bx-receipt me-1"></i>Final invoice${!cancelled && balance > 0 ? ` · ${U.inr(balance)} pending` : ''}</button>`;
     }
 
+    const itemsTable = event
+      ? `<table class="table mb-0">
+            <thead><tr><th>Description</th><th class="text-end">Price</th></tr></thead>
+            <tbody>${items.map(it => `<tr><td>${U.esc(it.item_name)}</td><td class="text-end">${U.inr(it.amount)}</td></tr>`).join('')}</tbody>
+            <tfoot><tr><th class="text-end">Total</th><th class="text-end">${U.inr(total)}</th></tr></tfoot>
+          </table>`
+      : `<table class="table mb-0">
+            <thead><tr><th>Item</th><th class="text-end">Qty</th><th class="text-end">Rate</th><th class="text-end">Amount</th></tr></thead>
+            <tbody>${items.map(it => `<tr><td>${U.esc(it.item_name)}</td><td class="text-end">${U.esc(it.qty)}</td>
+              <td class="text-end">${U.inr(it.rate)}</td><td class="text-end">${U.inr(it.amount)}</td></tr>`).join('')}</tbody>
+            <tfoot><tr><th colspan="3" class="text-end">Total</th><th class="text-end">${U.inr(total)}</th></tr></tfoot>
+          </table>`;
+
     el.innerHTML = `
-      ${cancelled ? '<div class="alert alert-dark">This order is cancelled.</div>' : ''}
+      ${cancelled ? `<div class="alert alert-dark">This ${noun.toLowerCase()} is cancelled.</div>` : ''}
       ${invoiceChanged ? `<div class="alert alert-warning d-flex gap-2"><i class="bx bx-error fs-5"></i>
-        <div>This order changed after invoice ${U.esc(invoice.invoice_no || '')} was issued. Open the invoice and void it if a corrected one is needed.</div></div>` : ''}
+        <div>This ${noun.toLowerCase()} changed after invoice ${U.esc(invoice.invoice_no || '')} was issued. Open the invoice and void it if a corrected one is needed.</div></div>` : ''}
       <div class="card mb-4">
         <div class="card-header d-flex align-items-center gap-2 flex-wrap">
           <a href="#/orders" class="btn btn-icon btn-sm btn-text-secondary" aria-label="Back"><i class="bx bx-arrow-back"></i></a>
           <div class="me-auto min-w-0">
-            <h5 class="mb-0">Order ${orderNo(o)}</h5>
+            <h5 class="mb-0">${noun} ${orderNo(o)} ${kindBadge(o)}</h5>
             ${c ? `<a href="#/customers/${encodeURIComponent(c.id)}" class="small">${U.esc(c.name)} · ${U.esc(c.contact_no)}</a>` : '<small class="text-muted">Unknown customer</small>'}
           </div>
           <a href="#/orders/${encodeURIComponent(id)}/edit" class="btn btn-sm btn-outline-primary"><i class="bx bx-edit-alt me-1"></i>Edit</a>
-          ${payments.length ? '' : '<button class="btn btn-sm btn-outline-danger" id="order-delete"><i class="bx bx-trash me-1"></i>Delete</button>'}
+          ${cancelled ? '' : `<button class="btn btn-sm btn-outline-danger" id="order-delete"><i class="bx bx-trash me-1"></i>${payments.length ? 'Cancel' : 'Delete'}</button>`}
         </div>
         <div class="card-body">
           <div class="row g-3 align-items-end">
-            <div class="col-6 col-lg-3"><small class="text-muted d-block">Order date</small><span class="fw-semibold">${U.fmtDate(o.order_date)}</span></div>
-            <div class="col-6 col-lg-3"><small class="text-muted d-block">Delivery date</small>
+            <div class="col-6 col-lg-3"><small class="text-muted d-block">${noun} date</small><span class="fw-semibold">${U.fmtDate(o.order_date)}</span></div>
+            <div class="col-6 col-lg-3"><small class="text-muted d-block">${dateLabel(o)}</small>
               <span class="fw-semibold">${U.fmtDate(o.delivery_date)}</span>${due ? `<div class="small">${due}</div>` : ''}</div>
             <div class="col-6 col-lg-3">
               <label class="text-muted small d-block" for="status-select">Status</label>
@@ -410,17 +487,8 @@ Views.orders = (() => {
       <div class="row g-4">
         <div class="col-lg-8">
           <div class="card mb-4">
-            <h5 class="card-header">Items</h5>
-            <div class="table-responsive">
-              <table class="table mb-0">
-                <thead><tr><th>Item</th><th class="text-end">Qty</th><th class="text-end">Rate</th><th class="text-end">Amount</th></tr></thead>
-                <tbody>
-                  ${items.map(it => `<tr><td>${U.esc(it.item_name)}</td><td class="text-end">${U.esc(it.qty)}</td>
-                    <td class="text-end">${U.inr(it.rate)}</td><td class="text-end">${U.inr(it.amount)}</td></tr>`).join('')}
-                </tbody>
-                <tfoot><tr><th colspan="3" class="text-end">Total</th><th class="text-end">${U.inr(total)}</th></tr></tfoot>
-              </table>
-            </div>
+            <h5 class="card-header">${event ? 'Lines' : 'Items'}</h5>
+            <div class="table-responsive">${itemsTable}</div>
           </div>
           ${o.notes ? `<div class="card mb-4"><div class="card-body"><small class="text-muted d-block mb-1">Notes</small>${U.esc(o.notes)}</div></div>` : ''}
         </div>
@@ -457,9 +525,9 @@ Views.orders = (() => {
       const next = e.target.value;
       if (next === 'Cancelled') {
         const ok = await UI.confirm({
-          title: 'Cancel this order?',
-          message: paid > 0 ? `${U.inr(paid)} has already been paid on this order. It stays on record.` : 'You can change the status back later if needed.',
-          confirmText: 'Cancel order'
+          title: `Cancel this ${noun.toLowerCase()}?`,
+          message: paid > 0 ? `${U.inr(paid)} has already been paid. It stays on record.` : 'You can change the status back later if needed.',
+          confirmText: `Cancel ${noun.toLowerCase()}`
         });
         if (!ok) { e.target.value = o.status; return; }
       }
@@ -470,7 +538,7 @@ Views.orders = (() => {
     if (finalBtn) finalBtn.addEventListener('click', async () => {
       const ok = await UI.confirm({
         title: 'Generate final invoice?',
-        message: `${U.inr(total)} for ${c ? c.name : 'this customer'}. The invoice copies the items as they are now and can't be edited afterwards, only voided.`,
+        message: `${U.inr(total)} for ${c ? c.name : 'this customer'}. The invoice copies the lines as they are now and can't be edited afterwards, only voided.`,
         confirmText: 'Generate', danger: false
       });
       if (!ok) return;
@@ -480,10 +548,25 @@ Views.orders = (() => {
     });
     const del = el.querySelector('#order-delete');
     if (del) del.addEventListener('click', async () => {
-      const ok = await UI.confirm({ title: 'Delete this order?', message: 'It will be removed from all lists. Use "Cancelled" instead if you want to keep it visible.', confirmText: 'Delete' });
+      if (payments.length) {
+        const ok = await UI.confirm({
+          title: `Cancel this ${noun.toLowerCase()}?`,
+          message: `${U.inr(paid)} has already been paid, so it can't be deleted. Cancel it instead — payments stay on record.`,
+          confirmText: `Cancel ${noun.toLowerCase()}`
+        });
+        if (!ok) return;
+        await Store.save('Orders', { id, status: 'Cancelled' });
+        UI.toast(`${noun} cancelled`);
+        return;
+      }
+      const ok = await UI.confirm({
+        title: `Delete this ${noun.toLowerCase()}?`,
+        message: 'It will be removed from all lists. Use Cancelled instead if you want to keep it visible.',
+        confirmText: 'Delete'
+      });
       if (!ok) return;
       await Store.saveMany([['Orders', { id, is_deleted: true }], ...items.map(it => ['OrderItems', { id: it.id, is_deleted: true }])]);
-      UI.toast('Order deleted');
+      UI.toast(`${noun} deleted`);
       location.hash = '#/orders';
     });
   }

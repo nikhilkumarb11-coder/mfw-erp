@@ -1,25 +1,53 @@
 /**
- * Editable list of line items (item name, qty, rate → amount) with a running
- * total. Used by orders now and by quotations and invoices later.
+ * Editable list of line items. Order mode: name, qty, rate → amount.
+ * Event mode: description + price only (qty locked to 1).
  *
- *   const editor = ItemsEditor.mount(container, { items, onChange: total => {} });
+ *   const editor = ItemsEditor.mount(container, { items, mode, onChange });
+ *   editor.setMode('event'|'order')
  *   editor.getItems()  → [{ id?, item_name, qty, rate, amount }]
  *   editor.total()     → number
  *   editor.validate()  → error message or ''
  */
 const ItemsEditor = (() => {
-  function mount(container, { items = [], onChange = () => {} } = {}) {
+  function mount(container, { items = [], mode = 'order', onChange = () => {} } = {}) {
+    let eventMode = String(mode) === 'event';
+
     container.innerHTML = `
       <div class="items-head d-none d-md-grid">
-        <span>Item</span><span class="text-end">Qty</span><span class="text-end">Rate (₹)</span><span class="text-end">Amount</span><span></span>
+        <span data-h-name>Item</span><span class="text-end" data-h-qty>Qty</span>
+        <span class="text-end" data-h-rate>Rate (₹)</span><span class="text-end" data-h-amount>Amount</span><span></span>
       </div>
       <div class="items-rows"></div>
-      <button type="button" class="btn btn-sm btn-outline-primary mt-2" data-add><i class="bx bx-plus me-1"></i>Add item</button>`;
+      <button type="button" class="btn btn-sm btn-outline-primary mt-2" data-add><i class="bx bx-plus me-1"></i><span data-add-label>Add item</span></button>`;
     const rowsEl = container.querySelector('.items-rows');
+    const head = container.querySelector('.items-head');
+
+    function applyChrome() {
+      container.classList.toggle('items-editor-event', eventMode);
+      head.querySelector('[data-h-name]').textContent = eventMode ? 'Description' : 'Item';
+      head.querySelector('[data-h-qty]').classList.toggle('d-none', eventMode);
+      head.querySelector('[data-h-rate]').textContent = eventMode ? 'Price (₹)' : 'Rate (₹)';
+      head.querySelector('[data-h-amount]').classList.toggle('d-none', eventMode);
+      container.querySelector('[data-add-label]').textContent = eventMode ? 'Add line' : 'Add item';
+      rowsEl.querySelectorAll('.item-row').forEach(syncRowLabels);
+    }
+
+    function syncRowLabels(row) {
+      const qty = row.querySelector('.item-qty');
+      const amount = row.querySelector('.item-amount');
+      const rateLabel = row.querySelector('.item-rate .small');
+      const nameInput = row.querySelector('[data-f="item_name"]');
+      qty.classList.toggle('d-none', eventMode);
+      amount.classList.toggle('d-none', eventMode);
+      if (rateLabel) rateLabel.textContent = eventMode ? 'Price (₹)' : 'Rate (₹)';
+      if (nameInput) nameInput.placeholder = eventMode ? 'Description' : 'Item name';
+      if (eventMode) row.querySelector('[data-f="qty"]').value = 1;
+    }
 
     function amountOf(row) {
-      const qty = Number(row.querySelector('[data-f="qty"]').value) || 0;
       const rate = Number(row.querySelector('[data-f="rate"]').value) || 0;
+      if (eventMode) return U.round2(rate);
+      const qty = Number(row.querySelector('[data-f="qty"]').value) || 0;
       return U.round2(qty * rate);
     }
 
@@ -43,15 +71,16 @@ const ItemsEditor = (() => {
             <input class="form-control text-end" data-f="rate" type="number" inputmode="decimal" min="0" step="any" value="${item.rate != null ? U.esc(item.rate) : ''}"></div>
           <div class="item-amount"><label class="d-md-none small text-muted">Amount</label>
             <div class="fw-semibold text-end" data-amount>₹0</div></div>
-          <div class="item-remove"><button type="button" class="btn btn-icon btn-sm btn-text-danger" title="Remove item" aria-label="Remove item"><i class="bx bx-trash"></i></button></div>
+          <div class="item-remove"><button type="button" class="btn btn-icon btn-sm btn-text-danger" title="Remove" aria-label="Remove"><i class="bx bx-trash"></i></button></div>
         </div>`);
       rowsEl.appendChild(row);
+      syncRowLabels(row);
 
       const nameInput = row.querySelector('[data-f="item_name"]');
       const rateInput = row.querySelector('[data-f="rate"]');
       Typeahead.attach(nameInput, {
         minChars: 1,
-        source: q => Metrics.itemSuggestions(q).map(m => ({ label: m.name, sub: `Last rate ${U.inr(m.rate)} · used ${m.count}×`, value: m })),
+        source: q => eventMode ? [] : Metrics.itemSuggestions(q).map(m => ({ label: m.name, sub: `Last rate ${U.inr(m.rate)} · used ${m.count}×`, value: m })),
         onPick: it => {
           nameInput.value = it.value.name;
           if (!rateInput.value || rateInput.dataset.auto === '1') {
@@ -78,30 +107,45 @@ const ItemsEditor = (() => {
     });
 
     (items.length ? items : [{}]).forEach(addRow);
+    applyChrome();
     recalc();
 
     return {
+      setMode(next) {
+        const nextEvent = String(next) === 'event';
+        if (nextEvent === eventMode) return;
+        eventMode = nextEvent;
+        applyChrome();
+        recalc();
+      },
+      getMode() { return eventMode ? 'event' : 'order'; },
       getItems() {
         return [...rowsEl.querySelectorAll('.item-row')]
-          .map(row => ({
-            id: row.dataset.id || undefined,
-            item_name: row.querySelector('[data-f="item_name"]').value.trim(),
-            qty: U.round2(row.querySelector('[data-f="qty"]').value),
-            rate: U.round2(row.querySelector('[data-f="rate"]').value),
-            amount: amountOf(row)
-          }))
+          .map(row => {
+            const rate = U.round2(row.querySelector('[data-f="rate"]').value);
+            const qty = eventMode ? 1 : U.round2(row.querySelector('[data-f="qty"]').value);
+            return {
+              id: row.dataset.id || undefined,
+              item_name: row.querySelector('[data-f="item_name"]').value.trim(),
+              qty,
+              rate,
+              amount: eventMode ? rate : U.round2(qty * rate)
+            };
+          })
           .filter(it => it.item_name || it.rate || it.id);
       },
       total() {
         return U.round2(this.getItems().reduce((s, it) => s + it.amount, 0));
       },
       validate() {
-        const items = this.getItems();
-        if (!items.length) return 'Add at least one item';
-        for (const it of items) {
-          if (!it.item_name) return 'Every item needs a name';
-          if (!(it.qty > 0)) return `Quantity for "${it.item_name}" must be more than 0`;
-          if (it.rate < 0) return `Rate for "${it.item_name}" can't be negative`;
+        const list = this.getItems();
+        if (!list.length) return eventMode ? 'Add at least one line' : 'Add at least one item';
+        for (const it of list) {
+          if (!it.item_name) return eventMode ? 'Every line needs a description' : 'Every item needs a name';
+          if (!eventMode && !(it.qty > 0)) return `Quantity for "${it.item_name}" must be more than 0`;
+          if (it.rate < 0) return eventMode
+            ? `Price for "${it.item_name}" can't be negative`
+            : `Rate for "${it.item_name}" can't be negative`;
         }
         return '';
       }

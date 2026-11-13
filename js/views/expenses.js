@@ -30,7 +30,21 @@ Views.expenses = (() => {
       .filter(e => (!filters.month || String(e.date).startsWith(filters.month))
         && (!filters.category || e.category === filters.category)
         && (!vendor || String(e.vendor_name || '').toLowerCase() === vendor))
-      .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.created_at).localeCompare(String(a.created_at)));
+      .sort((a, b) => {
+        // Purchase list: group by vendor; otherwise group by category, then newest first.
+        if (filters.category === 'Purchase') {
+          const v = String(a.vendor_name || '').localeCompare(String(b.vendor_name || ''), undefined, { sensitivity: 'base' });
+          if (v) return v;
+        } else {
+          const c = String(a.category || '').localeCompare(String(b.category || ''));
+          if (c) return c;
+          if (a.category === 'Purchase') {
+            const v = String(a.vendor_name || '').localeCompare(String(b.vendor_name || ''), undefined, { sensitivity: 'base' });
+            if (v) return v;
+          }
+        }
+        return String(b.date).localeCompare(String(a.date)) || String(b.created_at).localeCompare(String(a.created_at));
+      });
   }
 
   function periodLabel() {
@@ -40,6 +54,10 @@ Views.expenses = (() => {
   // ───── List ─────
 
   function renderList(el) {
+    filters.month = U.today().slice(0, 7);
+    filters.category = '';
+    filters.vendor = '';
+    shown = PAGE;
     const vendorOptions = vendors();
     el.innerHTML = `
       <div class="row g-3 mb-3" id="exp-stats"></div>

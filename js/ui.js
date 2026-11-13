@@ -349,13 +349,22 @@ const Metrics = (() => {
         .sort((a, b) => a.days - b.days);
     },
 
-    /** Sales, collections and order count for a 'YYYY-MM' month; pending dues are across all months. */
+    isEvent(o) {
+      return String((o && o.kind) || 'Order') === 'Event';
+    },
+
+    /** Sales, collections and order/event counts for a 'YYYY-MM' month; pending dues are across all months. */
     thisMonth(month = U.today().slice(0, 7)) {
       const orders = Store.list('Orders').filter(o => o.status !== 'Cancelled');
       const monthOrders = orders.filter(o => String(o.order_date).startsWith(month));
+      const monthPlain = monthOrders.filter(o => !Metrics.isEvent(o));
+      const monthEvents = monthOrders.filter(o => Metrics.isEvent(o));
+      const sumTotal = list => list.reduce((s, o) => s + (Number(o.total) || 0), 0);
       const customInvoices = Store.list('Invoices')
         .filter(i => i.type === 'Custom' && i.status !== 'Void' && String(i.date).startsWith(month));
-      const sales = monthOrders.reduce((s, o) => s + (Number(o.total) || 0), 0)
+      const orderSales = sumTotal(monthPlain);
+      const eventSales = sumTotal(monthEvents);
+      const sales = orderSales + eventSales
         + customInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0);
       const collected = Store.list('Payments')
         .filter(p => p.status !== 'Void' && String(p.date).startsWith(month))
@@ -363,7 +372,14 @@ const Metrics = (() => {
       const paid = paidByOrder();
       const dues = orders.map(o => Math.max(0, (Number(o.total) || 0) - (paid.get(o.id) || 0))).filter(d => d > 0);
       const pending = dues.reduce((s, d) => s + d, 0);
-      return { orderCount: monthOrders.length, sales, collected, pending, pendingOrders: dues.length };
+      return {
+        orderCount: monthOrders.length,
+        orderOnlyCount: monthPlain.length,
+        orderOnlySales: orderSales,
+        eventCount: monthEvents.length,
+        eventSales,
+        sales, collected, pending, pendingOrders: dues.length
+      };
     }
   };
 })();

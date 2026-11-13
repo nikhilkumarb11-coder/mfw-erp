@@ -11,10 +11,37 @@ Views.quotations = (() => {
   let query = '';
   let shown = PAGE;
 
+  const isEvent = q => String((q && q.kind) || 'Order') === 'Event';
+  const kindOf = q => isEvent(q) ? 'Event' : 'Order';
+  const kindBadge = q => isEvent(q)
+    ? '<span class="badge bg-label-warning">Event</span>'
+    : '<span class="badge bg-label-primary">Order</span>';
   const quoteNo = q => q.quote_no ? U.esc(q.quote_no) : '<span class="text-muted fst-italic">Saving…</span>';
   const statusBadge = q => q.status === 'Converted'
     ? '<span class="badge bg-label-success">Converted</span>'
     : '<span class="badge bg-label-info">Open</span>';
+
+  function termsPickerHtml(selectedText) {
+    const master = Docs.agreementTerms().map(t => ({ title: t.title || '', text: t.term_text || '', checked: t.default_checked !== false && t.default_checked !== 'FALSE' }));
+    let terms = master;
+    if (selectedText != null && selectedText !== '') {
+      const saved = Docs.parseTerms(selectedText);
+      const key = t => `${t.title}|${t.text}`;
+      const savedKeys = new Set(saved.map(key));
+      terms = master.map(t => ({ ...t, checked: savedKeys.has(key(t)) }));
+      saved.forEach(t => { if (!terms.some(m => key(m) === key(t))) terms.push({ ...t, checked: true }); });
+    }
+    return { terms, html: `
+      <h6 class="mt-4 mb-2">Agreement terms <small class="text-muted fw-normal">— shown on the quotation PDF</small></h6>
+      <p class="small text-muted mb-2">Manage the list in Settings → Agreement terms.</p>
+      <div class="terms-pick" id="terms-pick">
+        ${terms.map((t, i) => `
+          <label class="terms-pick-item">
+            <input class="form-check-input mt-1" type="checkbox" data-term="${i}" ${t.checked ? 'checked' : ''}>
+            <span><b>${U.esc(t.title)}</b>${t.title && t.text ? '<br>' : ''}<span class="text-muted small">${U.esc(t.text)}</span></span>
+          </label>`).join('') || '<p class="text-muted small">No terms yet.</p>'}
+      </div>` };
+  }
 
   function partyOf(q) {
     const c = q.customer_id ? Store.get('Customers', q.customer_id) : null;
@@ -90,10 +117,11 @@ Views.quotations = (() => {
       <div class="card d-none d-md-block">
         <div class="table-responsive">
           <table class="table table-hover mb-0">
-            <thead><tr><th>Quote</th><th>Date</th><th>For</th><th>Contact</th><th>Status</th><th class="text-end">Total</th></tr></thead>
+            <thead><tr><th>Quote</th><th>Type</th><th>Date</th><th>For</th><th>Contact</th><th>Status</th><th class="text-end">Total</th></tr></thead>
             <tbody>${list.map(({ x, p }) => `
               <tr class="row-link" data-href="#/quotations/${encodeURIComponent(x.id)}">
                 <td class="fw-semibold">${quoteNo(x)}</td>
+                <td>${kindBadge(x)}</td>
                 <td>${U.fmtDate(x.date)}</td>
                 <td>${U.esc(p.name)} <small class="text-muted d-block">${U.esc(p.sub || '')}</small></td>
                 <td>${U.esc(p.contact || '')}</td>
@@ -108,7 +136,7 @@ Views.quotations = (() => {
           <div class="min-w-0">
             <div class="fw-semibold text-truncate">${U.esc(p.name)}</div>
             <small class="text-muted">${quoteNo(x)} · ${U.fmtDate(x.date)}</small>
-            <div class="mt-1">${statusBadge(x)}</div>
+            <div class="mt-1 d-flex gap-1 flex-wrap">${kindBadge(x)} ${statusBadge(x)}</div>
           </div>
           <div class="fw-semibold flex-shrink-0">${U.inr(x.total)}</div>
         </a>`).join('')}</div></div>
@@ -128,6 +156,8 @@ Views.quotations = (() => {
     let customerId = x ? x.customer_id : (presetCustomerId && Store.get('Customers', presetCustomerId) ? presetCustomerId : '');
     let mode = x && !x.customer_id ? 'prospect' : 'customer';
     const back = x ? `#/quotations/${encodeURIComponent(x.id)}` : '#/quotations';
+    const event = x ? isEvent(x) : false;
+    const termsPick = termsPickerHtml(x ? x.terms_text : null);
 
     el.innerHTML = `
       <form class="card form-card" id="quote-form" novalidate>
@@ -141,6 +171,13 @@ Views.quotations = (() => {
             <button type="button" class="btn btn-sm" data-mode="prospect"><i class="bx bx-user-plus me-1"></i>New prospect</button>
           </div>
           <div class="row g-3">
+            <div class="col-12 col-md-4">
+              <label class="form-label" for="f-kind">Type *</label>
+              <select class="form-select" id="f-kind" name="kind">
+                <option value="Order" ${!event ? 'selected' : ''}>Order</option>
+                <option value="Event" ${event ? 'selected' : ''}>Event</option>
+              </select>
+            </div>
             <div class="col-12" id="mode-customer">
               <label class="form-label" for="f-customer">Customer *</label>
               <div id="customer-picked" class="customer-chip d-none"></div>
@@ -165,7 +202,7 @@ Views.quotations = (() => {
             </div>
           </div>
 
-          <h6 class="mt-4 mb-2">Items <small class="text-muted fw-normal">— rates are kept for the order; the printed quotation shows the total only</small></h6>
+          <h6 class="mt-4 mb-2"><span id="items-label">Items</span> <small class="text-muted fw-normal" id="items-hint">— rates are kept for the order; the printed quotation shows the total only</small></h6>
           <div id="items-editor"></div>
           <div class="row g-3 mt-2">
             <div class="col-md-6">
@@ -176,6 +213,7 @@ Views.quotations = (() => {
               <div class="grand-total"><span>Grand total</span><strong id="grand-total">₹0</strong></div>
             </div>
           </div>
+          ${termsPick.html}
           <div class="alert alert-danger mt-3 mb-0 d-none" id="quote-error"></div>
         </div>
         <div class="card-footer sticky-save d-flex gap-2 justify-content-end">
@@ -188,6 +226,7 @@ Views.quotations = (() => {
     const picked = form.querySelector('#customer-picked');
     const searchBox = form.querySelector('#customer-search-box');
     const custInput = form.querySelector('#f-customer');
+    const kindSelect = form.querySelector('#f-kind');
 
     function applyMode() {
       form.querySelectorAll('[data-mode]').forEach(b => {
@@ -223,8 +262,20 @@ Views.quotations = (() => {
 
     const editor = ItemsEditor.mount(form.querySelector('#items-editor'), {
       items: x ? itemsOf(x.id) : [],
+      mode: event ? 'event' : 'order',
       onChange: total => { form.querySelector('#grand-total').textContent = U.inr(total); }
     });
+
+    function applyKind() {
+      const ev = kindSelect.value === 'Event';
+      form.querySelector('#items-label').textContent = ev ? 'Lines' : 'Items';
+      form.querySelector('#items-hint').textContent = ev
+        ? '— description and price; printed quotation shows these lines'
+        : '— rates are kept for the order; the printed quotation shows the total only';
+      editor.setMode(ev ? 'event' : 'order');
+    }
+    kindSelect.addEventListener('change', applyKind);
+    applyKind();
 
     form.addEventListener('submit', async e => {
       e.preventDefault();
@@ -236,15 +287,23 @@ Views.quotations = (() => {
       const itemErr = editor.validate();
       if (itemErr) { errBox.textContent = itemErr; errBox.classList.remove('d-none'); return; }
 
+      const selected = termsPick.terms
+        .filter((t, i) => {
+          const box = form.querySelector(`[data-term="${i}"]`);
+          return box && box.checked;
+        })
+        .map(({ title, text }) => ({ title, text }));
       const qid = x ? x.id : U.uuid();
       const fields = {
         id: qid,
+        kind: kindSelect.value || 'Order',
         customer_id: mode === 'customer' ? customerId : '',
         prospect_name: mode === 'prospect' ? form.elements.prospect_name.value.trim() : '',
         prospect_contact: mode === 'prospect' ? form.elements.prospect_contact.value.trim() : '',
         date: form.elements.date.value,
         total: editor.total(),
-        notes: form.elements.notes.value.trim()
+        notes: form.elements.notes.value.trim(),
+        terms_text: JSON.stringify(selected)
       };
       if (!x) Object.assign(fields, { status: 'Open', converted_order_id: '' });
       const entries = [['Quotations', fields]];
@@ -281,14 +340,14 @@ Views.quotations = (() => {
         <div class="card-header d-flex align-items-center gap-2 flex-wrap">
           <a href="#/quotations" class="btn btn-icon btn-sm btn-text-secondary" aria-label="Back"><i class="bx bx-arrow-back"></i></a>
           <div class="me-auto min-w-0">
-            <h5 class="mb-0">Quotation ${quoteNo(x)} ${statusBadge(x)}</h5>
+            <h5 class="mb-0">Quotation ${quoteNo(x)} ${kindBadge(x)} ${statusBadge(x)}</h5>
             <small class="text-muted">${U.esc(p.name)} · ${U.inr(x.total)} · ${U.fmtDate(x.date)}</small>
           </div>
           <div class="d-flex gap-2 flex-wrap">
             ${Docs.actionsHtml()}
             ${converted ? '' : `
               <a href="#/quotations/${encodeURIComponent(id)}/edit" class="btn btn-sm btn-outline-primary"><i class="bx bx-edit-alt me-1"></i>Edit</a>
-              <a href="#/quotations/${encodeURIComponent(id)}/convert" class="btn btn-sm btn-primary"><i class="bx bx-transfer me-1"></i>Convert to order</a>
+              <a href="#/quotations/${encodeURIComponent(id)}/convert" class="btn btn-sm btn-primary"><i class="bx bx-transfer me-1"></i>Convert to ${kindOf(x).toLowerCase()}</a>
               <button class="btn btn-sm btn-outline-danger" id="quote-delete" aria-label="Delete"><i class="bx bx-trash"></i></button>`}
           </div>
         </div>
@@ -318,12 +377,14 @@ Views.quotations = (() => {
     const match = !existing && x.prospect_contact ? Store.list('Customers').find(c => c.contact_no === x.prospect_contact) : null;
     let linkId = existing ? existing.id : (match ? match.id : '');
     const back = `#/quotations/${encodeURIComponent(id)}`;
+    const event = isEvent(x);
+    const noun = event ? 'event' : 'order';
 
     el.innerHTML = `
       <form class="card form-card" id="conv-form" novalidate>
         <div class="card-header d-flex align-items-center gap-2">
           <a href="${back}" class="btn btn-icon btn-sm btn-text-secondary" aria-label="Back"><i class="bx bx-arrow-back"></i></a>
-          <h5 class="mb-0">Convert ${x.quote_no ? U.esc(x.quote_no) : 'quotation'} to an order</h5>
+          <h5 class="mb-0">Convert ${x.quote_no ? U.esc(x.quote_no) : 'quotation'} to an ${noun}</h5>
         </div>
         <div class="card-body">
           <h6 class="mb-2">Customer</h6>
@@ -365,16 +426,16 @@ Views.quotations = (() => {
               </div>
             </div>`}
 
-          <h6 class="mt-4 mb-2">Order</h6>
+          <h6 class="mt-4 mb-2">${event ? 'Event' : 'Order'} <span class="badge bg-label-${event ? 'warning' : 'primary'} ms-1">${event ? 'Event' : 'Order'}</span></h6>
           <div class="row g-3">
             <div class="col-6 col-md-4">
-              <label class="form-label" for="o-date">Order date</label>
+              <label class="form-label" for="o-date">${event ? 'Event' : 'Order'} date</label>
               <input type="date" class="form-control" id="o-date" name="order_date" required value="${U.today()}">
             </div>
             <div class="col-6 col-md-4">
-              <label class="form-label" for="o-delivery">Delivery date *</label>
+              <label class="form-label" for="o-delivery">${event ? 'Event date' : 'Delivery date'} *</label>
               <input type="date" class="form-control" id="o-delivery" name="delivery_date" required>
-              <div class="invalid-feedback">Choose the delivery date.</div>
+              <div class="invalid-feedback">Choose the ${event ? 'event' : 'delivery'} date.</div>
             </div>
             <div class="col-md-4">
               <label class="form-label" for="o-advance">Advance <span class="text-muted">(optional)</span></label>
@@ -382,16 +443,16 @@ Views.quotations = (() => {
                 <input type="number" class="form-control" id="o-advance" inputmode="decimal" min="0" step="any" placeholder="0"></div>
             </div>
           </div>
-          <h6 class="mt-4 mb-2">Items</h6>
+          <h6 class="mt-4 mb-2">${event ? 'Lines' : 'Items'}</h6>
           <div id="items-editor"></div>
           <div class="row mt-2"><div class="col-md-6 ms-auto">
-            <div class="grand-total"><span>Order total</span><strong id="grand-total">₹0</strong></div>
+            <div class="grand-total"><span>Total</span><strong id="grand-total">₹0</strong></div>
           </div></div>
           <div class="alert alert-danger mt-3 mb-0 d-none" id="conv-error"></div>
         </div>
         <div class="card-footer sticky-save d-flex gap-2 justify-content-end">
           <a href="${back}" class="btn btn-outline-secondary">Cancel</a>
-          <button type="submit" class="btn btn-primary flex-grow-1 flex-md-grow-0"><i class="bx bx-transfer me-1"></i>Create order</button>
+          <button type="submit" class="btn btn-primary flex-grow-1 flex-md-grow-0"><i class="bx bx-transfer me-1"></i>Create ${noun}</button>
         </div>
       </form>`;
 
@@ -409,6 +470,7 @@ Views.quotations = (() => {
 
     const editor = ItemsEditor.mount(form.querySelector('#items-editor'), {
       items: itemsOf(id).map(({ item_name, qty, rate, amount }) => ({ item_name, qty, rate, amount })),
+      mode: event ? 'event' : 'order',
       onChange: total => { form.querySelector('#grand-total').textContent = U.inr(total); }
     });
 
@@ -424,10 +486,10 @@ Views.quotations = (() => {
       const total = editor.total();
       const orderDate = form.elements.order_date.value;
       const delivery = form.elements.delivery_date.value;
-      if (delivery < orderDate) return fail('Delivery date is before the order date.');
+      if (delivery < orderDate) return fail(event ? 'Event date is before the date.' : 'Delivery date is before the order date.');
       const advance = U.round2(form.querySelector('#o-advance').value);
       if (advance < 0) return fail("Advance can't be negative.");
-      if (advance > total) return fail(`Advance (${U.inr(advance)}) is more than the order total (${U.inr(total)}).`);
+      if (advance > total) return fail(`Advance (${U.inr(advance)}) is more than the total (${U.inr(total)}).`);
 
       const entries = [];
       let customerId = linkId;
@@ -447,14 +509,14 @@ Views.quotations = (() => {
       }
       const orderId = U.uuid();
       entries.push(['Orders', {
-        id: orderId, customer_id: customerId, order_date: orderDate, delivery_date: delivery,
+        id: orderId, kind: kindOf(x), customer_id: customerId, order_date: orderDate, delivery_date: delivery,
         status: 'Pending', total, notes: x.notes || '', source_quotation_id: id
       }]);
       editor.getItems().forEach((it, i) => entries.push(['OrderItems', { order_id: orderId, item_name: it.item_name, qty: it.qty, rate: it.rate, amount: it.amount, sort: i }]));
       if (advance > 0) entries.push(['Payments', { order_id: orderId, date: orderDate, amount: advance, note: 'Advance', status: '' }]);
       entries.push(['Quotations', { id, status: 'Converted', converted_order_id: orderId, customer_id: customerId }]);
       await Store.saveMany(entries);
-      UI.toast('Order created from the quotation');
+      UI.toast(`${event ? 'Event' : 'Order'} created from the quotation`);
       location.hash = `#/orders/${encodeURIComponent(orderId)}`;
     });
     form.querySelector('#o-delivery').focus();
@@ -462,7 +524,7 @@ Views.quotations = (() => {
 
   return {
     title: 'Quotations',
-    refreshOn: params => (params[0] === 'new' || params[1] === 'edit' || params[1] === 'convert') ? null : ['Quotations', 'QuotationItems', 'Customers', 'Orders', 'Settings'],
+    refreshOn: params => (params[0] === 'new' || params[1] === 'edit' || params[1] === 'convert') ? null : ['Quotations', 'QuotationItems', 'Customers', 'Orders', 'Settings', 'Terms'],
 
     render(el, params) {
       const [a, b] = params;
