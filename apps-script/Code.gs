@@ -12,7 +12,7 @@
  * full download (withData) and "batch" can carry the next pull (since).
  */
 
-const API_VERSION = '0.5.4';
+const API_VERSION = '0.5.5';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -623,7 +623,6 @@ function ensureColumns_(sh, needed) {
   if (!missing.length) return { headers: existing.length ? existing : needed.slice(), added: [] };
 
   const startCol = existing.length + 1;
-  // A1 range avoids any ambiguity with getRange(row, column, numRows, numColumns).
   const startA1 = columnLetter_(startCol) + '1';
   const endA1 = columnLetter_(startCol + missing.length - 1) + '1';
   sh.getRange(startA1 + ':' + endA1).setValues([missing]).setFontWeight('bold').setBackground('#fde8dc');
@@ -631,36 +630,37 @@ function ensureColumns_(sh, needed) {
     const col = columnLetter_(startCol + i);
     sh.getRange(col + '2:' + col).setNumberFormat(formatFor_(h));
   });
-  SpreadsheetApp.flush();
+  // Do not flush here — batch_ flushes once after all writes (flush mid-save is very slow).
   return { headers: existing.concat(missing), added: missing };
 }
 
 /** addMissing: append columns added to SCHEMA since setup ran (only while holding the lock). */
 function readTable_(table, addMissing) {
   const sh = getSheet_(table);
-  const needed = headersFor_(table);
-  let headers;
+  // One getDataRange in the common case. Re-read only if we just appended headers.
+  let values = sh.getDataRange().getValues();
+  let headers = (values[0] || []).map(function (h) { return String(h || '').trim(); });
+  let headerCount = headers.length;
+  while (headerCount > 0 && !headers[headerCount - 1]) headerCount--;
   if (addMissing) {
-    headers = ensureColumns_(sh, needed).headers;
-  } else {
-    const lastCol = Math.max(sh.getLastColumn(), 1);
-    const raw = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
-      return String(h == null ? '' : h).trim();
-    });
-    let n = raw.length;
-    while (n > 0 && !raw[n - 1]) n--;
-    headers = raw.slice(0, n);
+    const existing = headers.slice(0, headerCount);
+    const missing = headersFor_(table).filter(function (h) { return existing.indexOf(h) === -1; });
+    if (missing.length) {
+      ensureColumns_(sh, headersFor_(table));
+      values = sh.getDataRange().getValues();
+      headers = (values[0] || []).map(function (h) { return String(h || '').trim(); });
+      headerCount = headers.length;
+      while (headerCount > 0 && !headers[headerCount - 1]) headerCount--;
+    }
   }
-  // Re-read after possible header append so row values line up with headers.
-  const lastCol = Math.max(headers.length, 1);
-  const lastRow = Math.max(sh.getLastRow(), 1);
-  const values = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  const useHeaders = headers.slice(0, headerCount);
+
   const tz = Session.getScriptTimeZone();
   const rows = [];
   const index = {};
   for (let r = 1; r < values.length; r++) {
     const obj = {};
-    headers.forEach(function (h, c) {
+    useHeaders.forEach(function (h, c) {
       if (!h) return;
       let v = values[r][c];
       if (Object.prototype.toString.call(v) === '[object Date]') {
@@ -675,7 +675,7 @@ function readTable_(table, addMissing) {
     rows.push(obj);
     obj.__row = r + 1;
   }
-  return { name: table, sheet: sh, headers: headers, rows: rows, index: index, appended: [], updatedIdx: {}, dirty: false };
+  return { name: table, sheet: sh, headers: useHeaders, rows: rows, index: index, appended: [], updatedIdx: {}, dirty: false };
 }
 
 function writeTable_(t) {

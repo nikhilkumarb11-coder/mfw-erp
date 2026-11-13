@@ -253,13 +253,24 @@ const UI = (() => {
 const Metrics = (() => {
   const CLOSED = ['Delivered', 'Cancelled'];
   let itemMemoryCache = null;
-  Store.onChange(tables => { if (tables.has('OrderItems')) itemMemoryCache = null; });
+  let eventDescMemoryCache = null;
+  Store.onChange(tables => {
+    if (tables.has('OrderItems') || tables.has('Orders')) {
+      itemMemoryCache = null;
+      eventDescMemoryCache = null;
+    }
+  });
 
-  /** Every item name used before, with its most recent rate and how often it was used. */
-  function itemMemory() {
-    if (itemMemoryCache) return itemMemoryCache;
+  function isEvent(o) {
+    return String((o && o.kind) || 'Order') === 'Event';
+  }
+
+  function lineMemory(eventOnly) {
+    const orderKind = new Map(Store.list('Orders', { includeDeleted: true }).map(o => [o.id, isEvent(o)]));
     const map = new Map();
     Store.list('OrderItems').forEach(it => {
+      const isEv = !!orderKind.get(it.order_id);
+      if (eventOnly ? !isEv : isEv) return;
       const name = String(it.item_name || '').trim();
       if (!name) return;
       const key = name.toLowerCase();
@@ -271,8 +282,27 @@ const Metrics = (() => {
         if ((it.updated_at || '') > m.at) { m.rate = Number(it.rate) || 0; m.at = it.updated_at || ''; m.name = name; }
       }
     });
-    itemMemoryCache = [...map.values()].sort((a, b) => b.count - a.count);
+    return [...map.values()].sort((a, b) => b.count - a.count);
+  }
+
+  /** Item names from past Orders (not Events), with last rate and use count. */
+  function itemMemory() {
+    if (!itemMemoryCache) itemMemoryCache = lineMemory(false);
     return itemMemoryCache;
+  }
+
+  /** Descriptions from past Events, with last price and use count. */
+  function eventDescMemory() {
+    if (!eventDescMemoryCache) eventDescMemoryCache = lineMemory(true);
+    return eventDescMemoryCache;
+  }
+
+  function suggestFrom(all, q) {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return [];
+    const starts = all.filter(m => m.name.toLowerCase().startsWith(needle));
+    const contains = all.filter(m => !m.name.toLowerCase().startsWith(needle) && m.name.toLowerCase().includes(needle));
+    return starts.concat(contains);
   }
 
   /** order_id → total paid, in one pass over Payments. */
@@ -300,14 +330,14 @@ const Metrics = (() => {
     paidByOrder,
     activeInvoiceFor,
     itemMemory,
+    eventDescMemory,
 
     itemSuggestions(q) {
-      const needle = q.trim().toLowerCase();
-      if (!needle) return [];
-      const all = itemMemory();
-      const starts = all.filter(m => m.name.toLowerCase().startsWith(needle));
-      const contains = all.filter(m => !m.name.toLowerCase().startsWith(needle) && m.name.toLowerCase().includes(needle));
-      return starts.concat(contains);
+      return suggestFrom(itemMemory(), q);
+    },
+
+    eventDescSuggestions(q) {
+      return suggestFrom(eventDescMemory(), q);
     },
 
     balanceFor(order, paidMap) {
@@ -349,9 +379,7 @@ const Metrics = (() => {
         .sort((a, b) => a.days - b.days);
     },
 
-    isEvent(o) {
-      return String((o && o.kind) || 'Order') === 'Event';
-    },
+    isEvent,
 
     /** Sales, collections and order/event counts for a 'YYYY-MM' month; pending dues are across all months. */
     thisMonth(month = U.today().slice(0, 7)) {

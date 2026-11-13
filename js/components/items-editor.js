@@ -80,7 +80,16 @@ const ItemsEditor = (() => {
       const rateInput = row.querySelector('[data-f="rate"]');
       Typeahead.attach(nameInput, {
         minChars: 1,
-        source: q => eventMode ? [] : Metrics.itemSuggestions(q).map(m => ({ label: m.name, sub: `Last rate ${U.inr(m.rate)} · used ${m.count}×`, value: m })),
+        source: q => {
+          const list = eventMode ? Metrics.eventDescSuggestions(q) : Metrics.itemSuggestions(q);
+          return list.map(m => ({
+            label: m.name,
+            sub: eventMode
+              ? `Last price ${U.inr(m.rate)} · used ${m.count}×`
+              : `Last rate ${U.inr(m.rate)} · used ${m.count}×`,
+            value: m
+          }));
+        },
         onPick: it => {
           nameInput.value = it.value.name;
           if (!rateInput.value || rateInput.dataset.auto === '1') {
