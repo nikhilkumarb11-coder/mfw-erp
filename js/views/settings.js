@@ -78,6 +78,11 @@ Views.settings = {
             </div>
             <div class="list-group list-group-flush" id="terms-list"></div>
           </div>
+
+          <div class="card mt-4 border-danger">
+            <h5 class="card-header text-danger">Clear test data</h5>
+            <div class="card-body" id="cleanup-card"></div>
+          </div>
         </div>
 
         <div class="col-xl-4">
@@ -111,6 +116,7 @@ Views.settings = {
 
     this.renderSyncCard();
     this.renderTerms();
+    this.renderCleanup();
     el.querySelector('#term-add').addEventListener('click', () => this.editTerm(null));
     if (this.unsub) this.unsub();
     this.unsub = Sync.onStatus(() => {
@@ -277,6 +283,333 @@ Views.settings = {
       await Store.saveMany(changed.map(f => ['Settings', { id: f.key, key: f.key, value: nextVal(f) }]));
     }
     UI.toast(changed.length ? 'Company profile saved' : 'No changes to save', changed.length ? 'success' : 'info');
+  },
+
+  // ───── Clear test data ─────
+
+  CLEANUP_CATS: [
+    { id: 'orders', label: 'Orders & Events (+ line items)' },
+    { id: 'payments', label: 'Payments (void — removed from Collected)' },
+    { id: 'invoices', label: 'Invoices (void)' },
+    { id: 'quotations', label: 'Quotations (+ lines)' },
+    { id: 'agreements', label: 'Agreements' },
+    { id: 'expenses', label: 'Expenses' },
+    { id: 'customers', label: 'Customers (only if they have no remaining orders)' }
+  ],
+
+  renderCleanup() {
+    const box = document.getElementById('cleanup-card');
+    if (!box) return;
+    const today = U.today();
+    const monthStart = today.slice(0, 7) + '-01';
+    box.innerHTML = `
+      <p class="small text-muted">Removes dummy / test entries for a date range without editing the Sheet by hand.
+        Rows are soft-deleted or voided through the app (same rules as normal). Number counters are not reset.</p>
+      <div class="row g-2 mb-3">
+        <div class="col-6">
+          <label class="form-label small mb-1" for="cu-from">From</label>
+          <input type="date" class="form-control form-control-sm" id="cu-from" value="${U.esc(monthStart)}">
+        </div>
+        <div class="col-6">
+          <label class="form-label small mb-1" for="cu-to">To</label>
+          <input type="date" class="form-control form-control-sm" id="cu-to" value="${U.esc(today)}">
+        </div>
+        <div class="col-12">
+          <label class="form-label small mb-1" for="cu-mode">Match dates by</label>
+          <select class="form-select form-select-sm" id="cu-mode">
+            <option value="doc">Document date (order / payment / invoice date…)</option>
+            <option value="created">Created date (when the row was saved)</option>
+          </select>
+        </div>
+      </div>
+      <div class="mb-2 small fw-semibold">Categories</div>
+      <div id="cu-cats" class="mb-3">
+        ${this.CLEANUP_CATS.map(c => `
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="cu-${c.id}" data-cu="${c.id}" checked>
+            <label class="form-check-label" for="cu-${c.id}">${c.label} <span class="text-muted" data-cu-count="${c.id}"></span></label>
+          </div>`).join('')}
+      </div>
+      <div class="d-flex flex-wrap gap-2 mb-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="cu-all">Select all</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="cu-none">Select none</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="cu-preview">Preview counts</button>
+      </div>
+      <div class="small text-muted mb-3" id="cu-summary">Choose a period and Preview to see what will be cleared.</div>
+      <button type="button" class="btn btn-danger w-100" id="cu-run" disabled><i class="bx bx-trash me-1"></i>Clear selected data</button>`;
+
+    const refresh = () => this.updateCleanupPreview();
+    ['cu-from', 'cu-to', 'cu-mode'].forEach(id => box.querySelector('#' + id).addEventListener('change', refresh));
+    box.querySelector('#cu-cats').addEventListener('change', refresh);
+    box.querySelector('#cu-all').addEventListener('click', () => {
+      box.querySelectorAll('[data-cu]').forEach(c => { c.checked = true; });
+      refresh();
+    });
+    box.querySelector('#cu-none').addEventListener('click', () => {
+      box.querySelectorAll('[data-cu]').forEach(c => { c.checked = false; });
+      refresh();
+    });
+    box.querySelector('#cu-preview').addEventListener('click', refresh);
+    box.querySelector('#cu-run').addEventListener('click', () => this.runCleanup());
+    refresh();
+  },
+
+  cleanupOpts() {
+    const box = document.getElementById('cleanup-card');
+    if (!box) return null;
+    const from = box.querySelector('#cu-from').value;
+    const to = box.querySelector('#cu-to').value;
+    const mode = box.querySelector('#cu-mode').value;
+    const cats = {};
+    this.CLEANUP_CATS.forEach(c => {
+      const el = box.querySelector(`[data-cu="${c.id}"]`);
+      cats[c.id] = !!(el && el.checked);
+    });
+    return { from, to, mode, cats };
+  },
+
+  inCleanupRange(dateVal, from, to) {
+    const d = String(dateVal || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  },
+
+  rowDate(row, mode, docField) {
+    if (mode === 'created') return String(row.created_at || '').slice(0, 10);
+    return String(row[docField] || '').slice(0, 10);
+  },
+
+  /** Build the set of rows to void / soft-delete for the current filters. */
+  planCleanup(opts) {
+    const { from, to, mode, cats } = opts;
+    const plan = {
+      invoices: [],
+      payments: [],
+      orders: [],
+      orderItems: [],
+      quotations: [],
+      quotationItems: [],
+      agreements: [],
+      expenses: [],
+      customers: [],
+      notes: []
+    };
+
+    const ordersInRange = Store.list('Orders').filter(o =>
+      this.inCleanupRange(this.rowDate(o, mode, 'order_date'), from, to));
+    const orderIds = new Set();
+
+    if (cats.orders) {
+      plan.orders = ordersInRange;
+      plan.orders.forEach(o => orderIds.add(o.id));
+      plan.orderItems = Store.list('OrderItems').filter(i => orderIds.has(i.order_id));
+    }
+
+    if (cats.invoices) {
+      plan.invoices = Store.list('Invoices').filter(i =>
+        i.status !== 'Void' && this.inCleanupRange(this.rowDate(i, mode, 'date'), from, to));
+    }
+    // Invoices on orders being cleared must be voided first (server rule for voiding payments).
+    if (cats.orders) {
+      Store.list('Invoices').forEach(i => {
+        if (i.status === 'Void' || !orderIds.has(i.order_id)) return;
+        if (!plan.invoices.some(x => x.id === i.id)) plan.invoices.push(i);
+      });
+    }
+
+    if (cats.payments) {
+      plan.payments = Store.list('Payments').filter(p =>
+        p.status !== 'Void' && this.inCleanupRange(this.rowDate(p, mode, 'date'), from, to));
+    }
+    if (cats.orders) {
+      Store.list('Payments').forEach(p => {
+        if (p.status === 'Void' || !orderIds.has(p.order_id)) return;
+        if (!plan.payments.some(x => x.id === p.id)) plan.payments.push(p);
+      });
+    }
+    // Payments selected alone may still need their order invoices voided first.
+    if (cats.payments && !cats.orders) {
+      const payOrderIds = new Set(plan.payments.map(p => p.order_id));
+      Store.list('Invoices').forEach(i => {
+        if (i.status === 'Void' || !payOrderIds.has(i.order_id)) return;
+        if (!plan.invoices.some(x => x.id === i.id)) {
+          plan.invoices.push(i);
+          plan.notes.push(`Invoice ${i.invoice_no || ''} will be voided so linked payments can be cleared.`);
+        }
+      });
+    }
+
+    if (cats.quotations) {
+      plan.quotations = Store.list('Quotations').filter(q =>
+        this.inCleanupRange(this.rowDate(q, mode, 'date'), from, to));
+      const qids = new Set(plan.quotations.map(q => q.id));
+      plan.quotationItems = Store.list('QuotationItems').filter(i => qids.has(i.quotation_id));
+    }
+
+    if (cats.agreements) {
+      plan.agreements = Store.list('Agreements').filter(a =>
+        this.inCleanupRange(this.rowDate(a, mode, 'date'), from, to));
+    }
+
+    if (cats.expenses) {
+      plan.expenses = Store.list('Expenses').filter(e =>
+        this.inCleanupRange(this.rowDate(e, mode, 'date'), from, to));
+    }
+
+    if (cats.customers) {
+      const remainingOrders = new Set(
+        Store.list('Orders').filter(o => !orderIds.has(o.id)).map(o => o.customer_id)
+      );
+      plan.customers = Store.list('Customers').filter(c =>
+        this.inCleanupRange(this.rowDate(c, mode, 'created_at'), from, to) && !remainingOrders.has(c.id));
+      const skipped = Store.list('Customers').filter(c =>
+        this.inCleanupRange(this.rowDate(c, mode, 'created_at'), from, to) && remainingOrders.has(c.id)).length;
+      if (skipped) plan.notes.push(`${skipped} customer(s) in range kept — they still have orders.`);
+    }
+
+    plan.total =
+      plan.invoices.length + plan.payments.length + plan.orders.length + plan.orderItems.length +
+      plan.quotations.length + plan.quotationItems.length + plan.agreements.length +
+      plan.expenses.length + plan.customers.length;
+    return plan;
+  },
+
+  updateCleanupPreview() {
+    const box = document.getElementById('cleanup-card');
+    if (!box) return;
+    const opts = this.cleanupOpts();
+    const summary = box.querySelector('#cu-summary');
+    const runBtn = box.querySelector('#cu-run');
+    if (!opts.from || !opts.to) {
+      summary.textContent = 'Choose From and To dates.';
+      runBtn.disabled = true;
+      return;
+    }
+    if (opts.from > opts.to) {
+      summary.textContent = 'From date must be on or before To date.';
+      runBtn.disabled = true;
+      return;
+    }
+    const plan = this.planCleanup(opts);
+    const counts = {
+      orders: plan.orders.length,
+      payments: plan.payments.length,
+      invoices: plan.invoices.length,
+      quotations: plan.quotations.length,
+      agreements: plan.agreements.length,
+      expenses: plan.expenses.length,
+      customers: plan.customers.length
+    };
+    this.CLEANUP_CATS.forEach(c => {
+      const el = box.querySelector(`[data-cu-count="${c.id}"]`);
+      if (el) el.textContent = opts.cats[c.id] ? `(${counts[c.id]})` : '';
+    });
+    if (!Object.values(opts.cats).some(Boolean)) {
+      summary.textContent = 'Select at least one category.';
+      runBtn.disabled = true;
+      return;
+    }
+    if (!plan.total) {
+      summary.textContent = 'No matching entries in this period for the selected categories.';
+      runBtn.disabled = true;
+      return;
+    }
+    const parts = [
+      plan.orders.length && `${plan.orders.length} order(s)`,
+      plan.orderItems.length && `${plan.orderItems.length} order line(s)`,
+      plan.payments.length && `${plan.payments.length} payment(s) to void`,
+      plan.invoices.length && `${plan.invoices.length} invoice(s) to void`,
+      plan.quotations.length && `${plan.quotations.length} quotation(s)`,
+      plan.agreements.length && `${plan.agreements.length} agreement(s)`,
+      plan.expenses.length && `${plan.expenses.length} expense(s)`,
+      plan.customers.length && `${plan.customers.length} customer(s)`
+    ].filter(Boolean);
+    summary.innerHTML = `<span class="text-danger">Will clear: ${parts.join(' · ')}.</span>` +
+      (plan.notes.length ? `<div class="mt-1">${plan.notes.map(U.esc).join('<br>')}</div>` : '');
+    runBtn.disabled = false;
+    this._cleanupPlan = plan;
+    this._cleanupOpts = opts;
+  },
+
+  async runCleanup() {
+    this.updateCleanupPreview();
+    const plan = this._cleanupPlan;
+    const opts = this._cleanupOpts;
+    if (!plan || !plan.total) return;
+    if (Store.hasPending()) {
+      UI.toast('Sync pending changes first, then clear data.', 'warning');
+      return;
+    }
+    const ok = await UI.confirm({
+      title: 'Clear this test data?',
+      message: `${plan.total} row change(s) from ${opts.from} to ${opts.to}. Type DELETE in the next step is not required — this cannot be undone from the app (voided/deleted rows stay hidden).`,
+      confirmText: 'Clear data',
+      danger: true
+    });
+    if (!ok) return;
+
+    // Extra typed confirm
+    const typed = await new Promise(resolve => {
+      const el = U.el(`
+        <div class="modal fade" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered modal-sm">
+            <form class="modal-content">
+              <div class="modal-header"><h5 class="modal-title">Confirm cleanup</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+              <div class="modal-body">
+                <label class="form-label" for="cu-type">Type <b>DELETE</b> to continue</label>
+                <input class="form-control" id="cu-type" autocomplete="off" required>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-danger">Clear now</button>
+              </div>
+            </form>
+          </div>
+        </div>`);
+      document.body.appendChild(el);
+      const modal = new bootstrap.Modal(el);
+      let done = false;
+      el.querySelector('form').addEventListener('submit', e => {
+        e.preventDefault();
+        done = el.querySelector('#cu-type').value.trim().toUpperCase() === 'DELETE';
+        modal.hide();
+      });
+      el.addEventListener('hidden.bs.modal', () => { el.remove(); resolve(done); });
+      el.addEventListener('shown.bs.modal', () => el.querySelector('#cu-type').focus());
+      modal.show();
+    });
+    if (!typed) {
+      UI.toast('Cleanup cancelled', 'info');
+      return;
+    }
+
+    const entries = [];
+    // 1) Void invoices  2) Void payments  3) Soft-delete the rest
+    plan.invoices.forEach(i => entries.push(['Invoices', { id: i.id, status: 'Void', void_reason: 'Cleared as test data' }]));
+    plan.payments.forEach(p => entries.push(['Payments', { id: p.id, status: 'Void' }]));
+    plan.orderItems.forEach(i => entries.push(['OrderItems', { id: i.id, is_deleted: true }]));
+    plan.orders.forEach(o => entries.push(['Orders', { id: o.id, is_deleted: true }]));
+    plan.quotationItems.forEach(i => entries.push(['QuotationItems', { id: i.id, is_deleted: true }]));
+    plan.quotations.forEach(q => entries.push(['Quotations', { id: q.id, is_deleted: true }]));
+    plan.agreements.forEach(a => entries.push(['Agreements', { id: a.id, is_deleted: true }]));
+    plan.expenses.forEach(e => entries.push(['Expenses', { id: e.id, is_deleted: true }]));
+    plan.customers.forEach(c => entries.push(['Customers', { id: c.id, is_deleted: true }]));
+
+    try {
+      // Batch in chunks so a huge cleanup still fits Apps Script limits.
+      const CHUNK = 40;
+      for (let i = 0; i < entries.length; i += CHUNK) {
+        await Store.saveMany(entries.slice(i, i + CHUNK));
+      }
+      await Sync.now();
+      UI.toast(`Cleared ${plan.total} change(s)`);
+      this.renderCleanup();
+    } catch (err) {
+      UI.toast(`Cleanup failed: ${err.message || err}`, 'danger');
+    }
   },
 
   async reloadAll() {
