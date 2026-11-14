@@ -71,9 +71,35 @@ const Docs = (() => {
       .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.created_at).localeCompare(String(b.created_at)));
   }
 
+  function settingOn(key, defaultOn) {
+    const s = Store.settings();
+    if (!(key in s) || s[key] === '' || s[key] == null) return !!defaultOn;
+    const v = String(s[key]).toUpperCase();
+    return v === 'TRUE' || v === '1' || v === 'YES';
+  }
+
+  /** Bill-to party for proforma / invoice; company & Aadhaar respect Settings toggles. */
   function customerTo(c) {
     if (!c) return { name: 'Unknown customer' };
-    return { name: c.company_name || c.name, attn: c.company_name ? c.name : '', address: c.location, phone: c.contact_no };
+    const showCompany = settingOn('invoice_show_company', true);
+    const showAadhar = settingOn('invoice_show_aadhar', false);
+    const company = String(c.company_name || '').trim();
+    const last4 = String(c.aadhar_last4 || '').replace(/\D/g, '').slice(-4);
+    return {
+      name: c.name || 'Unknown customer',
+      company: showCompany && company ? company : '',
+      attn: '',
+      address: c.location,
+      phone: c.contact_no,
+      aadhar: showAadhar && last4.length === 4 ? `XXXX XXXX ${last4}` : ''
+    };
+  }
+
+  function orderNotesNote(order) {
+    if (!order) return '';
+    const on = order.include_notes_on_invoice === true || order.include_notes_on_invoice === 'TRUE';
+    const notes = String(order.notes || '').trim();
+    return on && notes ? notes : '';
   }
 
   // ───── Document data ─────
@@ -90,6 +116,7 @@ const Docs = (() => {
       items: itemsFor('OrderItems', 'order_id', order.id),
       totals: [['Total Amount', total], ['Advance Paid', paid], ['Due Amount', U.round2(total - paid), 'grand']],
       words: total,
+      note: orderNotesNote(order),
       terms: true,
       phone: c && c.contact_no,
       message: `Dear ${c ? c.name : 'Customer'}, please find the proforma invoice for order ${order.order_no || ''}. ` +
@@ -102,9 +129,13 @@ const Docs = (() => {
     const c = order ? Store.get('Customers', order.customer_id) : null;
     const total = U.round2(inv.total);
     const isVoid = inv.status === 'Void';
-    const to = { name: inv.buyer_name, attn: c && c.company_name && c.company_name === inv.buyer_name ? c.name : '', address: inv.buyer_address, phone: inv.buyer_contact };
+    const to = c
+      ? customerTo(c)
+      : { name: inv.buyer_name, address: inv.buyer_address, phone: inv.buyer_contact };
     const meta = [['Invoice No', inv.invoice_no || 'Pending'], ['Date', U.fmtDate(inv.date)]];
     if (order) meta.push(['Order No', order.order_no || '—']);
+    const orderNote = orderNotesNote(order);
+    const voidNote = isVoid && inv.void_reason ? `Voided: ${inv.void_reason}` : '';
     return {
       kind: 'invoice', size: 'a4', title: 'Invoice',
       fileName: `Invoice-${String(inv.invoice_no || 'pending').replace(/\//g, '-')}`,
@@ -114,7 +145,7 @@ const Docs = (() => {
       words: total,
       terms: true,
       stamp: isVoid ? 'void' : 'paid',
-      note: isVoid && inv.void_reason ? `Voided: ${inv.void_reason}` : '',
+      note: [orderNote, voidNote].filter(Boolean).join('\n'),
       phone: inv.buyer_contact,
       message: `Dear ${inv.buyer_name}, please find attached invoice ${inv.invoice_no} dated ${U.fmtDate(inv.date)} for ₹${U.money(total)}. Thank you for your business!`
     };
@@ -227,9 +258,11 @@ const Docs = (() => {
       <div class="doc-party">
         <div class="doc-label">${{ receipt: 'Received from', quotation: 'Quotation for', agreement: 'Customer' }[d.kind] || 'Bill to'}</div>
         <div class="doc-to-name">${U.esc(t.name)}</div>
+        ${t.company ? `<div>${U.esc(t.company)}</div>` : ''}
         ${t.attn ? `<div>Attn: ${U.esc(t.attn)}</div>` : ''}
         ${t.address ? `<div>${U.esc(t.address)}</div>` : ''}
         ${t.phone ? `<div>Ph: ${U.esc(t.phone)}</div>` : ''}
+        ${t.aadhar ? `<div>Aadhaar: ${U.esc(t.aadhar)}</div>` : ''}
       </div>
       <table class="doc-meta">${d.meta.map(([k, v]) => `<tr><td>${k}</td><td>${U.esc(v)}</td></tr>`).join('')}</table>`;
   }

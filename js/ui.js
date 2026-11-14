@@ -206,7 +206,7 @@ const UI = (() => {
   }
 
   /** Promise<boolean>. Use for every destructive action. */
-  function confirm({ title = 'Are you sure?', message = '', confirmText = 'Confirm', danger = true } = {}) {
+  function confirm({ title = 'Are you sure?', message = '', confirmText = 'Confirm', cancelText = 'Cancel', danger = true } = {}) {
     return new Promise(resolve => {
       const el = U.el(`
         <div class="modal fade" tabindex="-1">
@@ -216,7 +216,7 @@ const UI = (() => {
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
               <div class="modal-body">${U.esc(message)}</div>
               <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">${U.esc(cancelText)}</button>
                 <button type="button" class="btn btn-${danger ? 'danger' : 'primary'}" data-ok>${U.esc(confirmText)}</button>
               </div>
             </div>
@@ -227,6 +227,34 @@ const UI = (() => {
       let ok = false;
       el.querySelector('[data-ok]').addEventListener('click', () => { ok = true; modal.hide(); });
       el.addEventListener('hidden.bs.modal', () => { el.remove(); resolve(ok); });
+      modal.show();
+    });
+  }
+
+  /** Three-way choice: primary → 'yes', secondary → 'no', dismiss → null. */
+  function choose({ title = 'Choose', message = '', yesText = 'Yes', noText = 'No', danger = false } = {}) {
+    return new Promise(resolve => {
+      const el = U.el(`
+        <div class="modal fade" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header"><h5 class="modal-title">${U.esc(title)}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+              <div class="modal-body">${U.esc(message)}</div>
+              <div class="modal-footer flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Go back</button>
+                <button type="button" class="btn btn-outline-primary" data-no>${U.esc(noText)}</button>
+                <button type="button" class="btn btn-${danger ? 'danger' : 'primary'}" data-yes>${U.esc(yesText)}</button>
+              </div>
+            </div>
+          </div>
+        </div>`);
+      document.body.appendChild(el);
+      const modal = new bootstrap.Modal(el);
+      let result = null;
+      el.querySelector('[data-yes]').addEventListener('click', () => { result = 'yes'; modal.hide(); });
+      el.querySelector('[data-no]').addEventListener('click', () => { result = 'no'; modal.hide(); });
+      el.addEventListener('hidden.bs.modal', () => { el.remove(); resolve(result); });
       modal.show();
     });
   }
@@ -243,7 +271,7 @@ const UI = (() => {
   }
 
   return {
-    buildNav, route, render, onDataChange, renderSyncStatus, updateBadges, toast, confirm, skeleton,
+    buildNav, route, render, onDataChange, renderSyncStatus, updateBadges, toast, confirm, choose, skeleton,
     current: () => current && current.name,
     showSkeleton: () => { $('#page-content').innerHTML = skeleton(); }
   };

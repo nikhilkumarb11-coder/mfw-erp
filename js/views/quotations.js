@@ -501,9 +501,12 @@ Views.quotations = (() => {
           if (!ok) return;
         }
         customerId = U.uuid();
+        const aadhar = form.elements.c_aadhar.value.trim();
+        const aadharDigits = aadhar.replace(/\D/g, '');
         entries.push(['Customers', {
           id: customerId, name: form.elements.c_name.value.trim(), contact_no: contact,
-          location: form.elements.c_location.value.trim(), aadhar_no: form.elements.c_aadhar.value.trim(),
+          location: form.elements.c_location.value.trim(), aadhar_no: aadhar,
+          aadhar_last4: aadharDigits.length >= 4 ? aadharDigits.slice(-4) : '',
           company_name: form.elements.c_company.value.trim()
         }]);
       }

@@ -14,6 +14,9 @@ Views.settings = {
     { key: 'doc_sign_name', label: 'Name in the signature block', placeholder: 'MADEENA GRAND FIREWORKS' },
     { key: 'invoice_terms', label: 'Terms on invoices (one per line)', type: 'textarea', rows: 4, def: () => Docs.DEFAULT_TERMS },
     { key: 'invoice_footer', label: 'Invoice footer note', type: 'textarea' },
+    { section: 'Invoice party details', note: 'Extra lines on proforma and final invoices.' },
+    { key: 'invoice_show_company', label: 'Show customer company name on invoices', type: 'checkbox', def: () => 'TRUE' },
+    { key: 'invoice_show_aadhar', label: 'Show masked Aadhaar (XXXX XXXX last 4) on invoices', type: 'checkbox', def: () => 'FALSE' },
     { section: 'Agreement header', note: 'Agreements are issued under this firm. The header is built from these details.' },
     { key: 'agr_firm_name', label: 'Firm name', def: () => Docs.FIRM_DEFAULTS.agr_firm_name },
     { key: 'agr_proprietor', label: 'Proprietor', def: () => Docs.FIRM_DEFAULTS.agr_proprietor },
@@ -26,11 +29,25 @@ Views.settings = {
     return f.key in s ? s[f.key] || '' : (f.def ? f.def() : '');
   },
 
+  checked(s, f) {
+    const v = String(this.value(s, f)).toUpperCase();
+    if (v === '') return String(f.def ? f.def() : '').toUpperCase() === 'TRUE';
+    return v === 'TRUE' || v === '1' || v === 'YES';
+  },
+
   render(el) {
     const s = Store.settings();
     const field = f => {
       if (f.section) {
         return `<div class="col-12 mt-4"><h6 class="mb-0">${f.section}</h6>${f.note ? `<small class="text-muted">${f.note}</small>` : ''}</div>`;
+      }
+      if (f.type === 'checkbox') {
+        return `<div class="col-12">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="set-${f.key}" name="${f.key}" value="TRUE" ${this.checked(s, f) ? 'checked' : ''}>
+            <label class="form-check-label" for="set-${f.key}">${f.label}</label>
+          </div>
+        </div>`;
       }
       const value = U.esc(this.value(s, f));
       const attrs = `class="form-control" id="set-${f.key}" name="${f.key}" ${f.required ? 'required' : ''} ${f.inputmode ? `inputmode="${f.inputmode}"` : ''} ${f.placeholder ? `placeholder="${U.esc(f.placeholder)}"` : ''}`;
@@ -247,9 +264,17 @@ Views.settings = {
       return;
     }
     const s = Store.settings();
-    const changed = this.FIELDS.filter(f => f.key && form.elements[f.key].value.trim() !== this.value(s, f).trim());
+    const nextVal = f => {
+      if (f.type === 'checkbox') return form.elements[f.key].checked ? 'TRUE' : 'FALSE';
+      return form.elements[f.key].value.trim();
+    };
+    const prevVal = f => {
+      if (f.type === 'checkbox') return this.checked(s, f) ? 'TRUE' : 'FALSE';
+      return this.value(s, f).trim();
+    };
+    const changed = this.FIELDS.filter(f => f.key && nextVal(f) !== prevVal(f));
     if (changed.length) {
-      await Store.saveMany(changed.map(f => ['Settings', { id: f.key, key: f.key, value: form.elements[f.key].value.trim() }]));
+      await Store.saveMany(changed.map(f => ['Settings', { id: f.key, key: f.key, value: nextVal(f) }]));
     }
     UI.toast(changed.length ? 'Company profile saved' : 'No changes to save', changed.length ? 'success' : 'info');
   },

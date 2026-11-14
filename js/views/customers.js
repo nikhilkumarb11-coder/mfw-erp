@@ -170,7 +170,11 @@ Views.customers = (() => {
       company_name: v('company_name')
     };
     if (existing) patch.id = existing.id;
-    if (aadhar) patch.aadhar_no = aadhar;
+    if (aadhar) {
+      patch.aadhar_no = aadhar;
+      const digits = aadhar.replace(/\D/g, '');
+      if (digits.length >= 4) patch.aadhar_last4 = digits.slice(-4);
+    }
     const row = await Store.save('Customers', patch);
     UI.toast(existing ? 'Customer updated' : 'Customer added');
     location.hash = next === 'order' ? `#/orders/new/${encodeURIComponent(row.id)}` : `#/customers/${encodeURIComponent(row.id)}`;

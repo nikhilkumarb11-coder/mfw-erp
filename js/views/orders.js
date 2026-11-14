@@ -246,6 +246,11 @@ Views.orders = (() => {
           <div class="mt-3">
             <label class="form-label" for="f-notes">Notes <span class="text-muted">(optional)</span></label>
             <textarea class="form-control" id="f-notes" name="notes" rows="2">${U.esc(o ? o.notes : '')}</textarea>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="f-notes-invoice" name="include_notes_on_invoice"
+                ${(o && (o.include_notes_on_invoice === true || o.include_notes_on_invoice === 'TRUE')) ? 'checked' : ''}>
+              <label class="form-check-label" for="f-notes-invoice">Show these notes on invoice / proforma</label>
+            </div>
           </div>
           <div class="alert alert-danger mt-3 mb-0 d-none" id="order-error"></div>
         </div>
@@ -360,7 +365,8 @@ Views.orders = (() => {
       delivery_date: form.elements.delivery_date.value,
       status: form.elements.status.value,
       total,
-      notes: form.elements.notes.value.trim()
+      notes: form.elements.notes.value.trim(),
+      include_notes_on_invoice: !!form.elements.include_notes_on_invoice.checked
     };
     if (fields.delivery_date < fields.order_date) {
       return fail(event ? 'Event date is before the date.' : 'Delivery date is before the order date.');
@@ -490,7 +496,7 @@ Views.orders = (() => {
             <h5 class="card-header">${event ? 'Lines' : 'Items'}</h5>
             <div class="table-responsive">${itemsTable}</div>
           </div>
-          ${o.notes ? `<div class="card mb-4"><div class="card-body"><small class="text-muted d-block mb-1">Notes</small>${U.esc(o.notes)}</div></div>` : ''}
+          ${o.notes ? `<div class="card mb-4"><div class="card-body"><small class="text-muted d-block mb-1">Notes${(o.include_notes_on_invoice === true || o.include_notes_on_invoice === 'TRUE') ? ' · on invoice' : ''}</small>${U.esc(o.notes)}</div></div>` : ''}
         </div>
 
         <div class="col-lg-4">
@@ -521,15 +527,49 @@ Views.orders = (() => {
         </div>
       </div>`;
 
+    /** Cancel with optional advance refund (voids payments so Collected drops). */
+    async function cancelWithRefundAsk() {
+      const ok = await UI.confirm({
+        title: `Cancel this ${noun.toLowerCase()}?`,
+        message: paid > 0
+          ? `${U.inr(paid)} has been collected. Next you’ll choose whether it was returned.`
+          : 'You can change the status back later if needed.',
+        confirmText: `Cancel ${noun.toLowerCase()}`
+      });
+      if (!ok) return false;
+      if (!(paid > 0)) {
+        await Store.save('Orders', { id, status: 'Cancelled' });
+        UI.toast(`${noun} cancelled`);
+        return true;
+      }
+      const choice = await UI.choose({
+        title: 'Was the advance returned?',
+        message: `If you returned ${U.inr(paid)} to the customer, it will be removed from Collected. If you kept it, it stays as income.`,
+        yesText: 'Returned — remove from income',
+        noText: 'Kept — stay as income',
+        danger: true
+      });
+      if (choice == null) return false;
+      const entries = [['Orders', { id, status: 'Cancelled' }]];
+      if (choice === 'yes') {
+        if (invoice) {
+          entries.unshift(['Invoices', { id: invoice.id, status: 'Void', void_reason: `${noun} cancelled — advance refunded` }]);
+        }
+        payments.forEach(p => entries.push(['Payments', { id: p.id, status: 'Void' }]));
+      }
+      await Store.saveMany(entries);
+      UI.toast(choice === 'yes'
+        ? `${noun} cancelled; ${U.inr(paid)} removed from Collected`
+        : `${noun} cancelled; ${U.inr(paid)} kept as income`);
+      return true;
+    }
+
     el.querySelector('#status-select').addEventListener('change', async e => {
       const next = e.target.value;
       if (next === 'Cancelled') {
-        const ok = await UI.confirm({
-          title: `Cancel this ${noun.toLowerCase()}?`,
-          message: paid > 0 ? `${U.inr(paid)} has already been paid. It stays on record.` : 'You can change the status back later if needed.',
-          confirmText: `Cancel ${noun.toLowerCase()}`
-        });
-        if (!ok) { e.target.value = o.status; return; }
+        const done = await cancelWithRefundAsk();
+        if (!done) { e.target.value = o.status; return; }
+        return;
       }
       await Store.save('Orders', { id, status: next });
       UI.toast(`Status changed to ${next}`);
@@ -549,14 +589,8 @@ Views.orders = (() => {
     const del = el.querySelector('#order-delete');
     if (del) del.addEventListener('click', async () => {
       if (payments.length) {
-        const ok = await UI.confirm({
-          title: `Cancel this ${noun.toLowerCase()}?`,
-          message: `${U.inr(paid)} has already been paid, so it can't be deleted. Cancel it instead — payments stay on record.`,
-          confirmText: `Cancel ${noun.toLowerCase()}`
-        });
-        if (!ok) return;
-        await Store.save('Orders', { id, status: 'Cancelled' });
-        UI.toast(`${noun} cancelled`);
+        const done = await cancelWithRefundAsk();
+        if (done) location.hash = `#/orders/${encodeURIComponent(id)}`;
         return;
       }
       const ok = await UI.confirm({

@@ -12,7 +12,7 @@
  * full download (withData) and "batch" can carry the next pull (since).
  */
 
-const API_VERSION = '0.5.5';
+const API_VERSION = '0.5.6';
 const TOKEN_DAYS = 30;
 const SYNC_OVERLAP_MS = 15000;
 const MAX_LOGIN_FAILS = 8;
@@ -20,8 +20,8 @@ const MAX_LOGIN_FAILS = 8;
 const COMMON_FIELDS = ['id', 'created_at', 'created_by', 'updated_at', 'updated_by', 'is_deleted'];
 
 const SCHEMA = {
-  Customers:      ['name', 'contact_no', 'location', 'aadhar_no', 'company_name'],
-  Orders:         ['order_no', 'kind', 'customer_id', 'order_date', 'delivery_date', 'total', 'status', 'source_quotation_id', 'notes'],
+  Customers:      ['name', 'contact_no', 'location', 'aadhar_no', 'aadhar_last4', 'company_name'],
+  Orders:         ['order_no', 'kind', 'customer_id', 'order_date', 'delivery_date', 'total', 'status', 'source_quotation_id', 'notes', 'include_notes_on_invoice'],
   OrderItems:     ['order_id', 'item_name', 'qty', 'rate', 'amount', 'sort'],
   Payments:       ['receipt_no', 'order_id', 'date', 'amount', 'note', 'status'],
   Invoices:       ['invoice_no', 'type', 'order_id', 'buyer_name', 'buyer_contact', 'buyer_address', 'date', 'total', 'status', 'void_reason'],
@@ -35,7 +35,7 @@ const SCHEMA = {
 };
 
 const NUMERIC_FIELDS = { qty: 1, rate: 1, amount: 1, total: 1, sort: 1 };
-const BOOLEAN_FIELDS = { is_deleted: 1, default_checked: 1, active: 1 };
+const BOOLEAN_FIELDS = { is_deleted: 1, default_checked: 1, active: 1, include_notes_on_invoice: 1 };
 
 /** Fields the server assigns on create; clients can never set or change them. */
 const AUTO_NUMBERS = {
@@ -68,6 +68,15 @@ const VALIDATORS = {
     if (!row.name) throw invalid_('Customer name is required');
     if (!/^\d{10}$/.test(String(row.contact_no))) throw invalid_('Contact number must be 10 digits');
     if (!row.location) throw invalid_('Location is required');
+    // Public last-4 for invoices; full number stays in private aadhar_no.
+    if (row.aadhar_no && !/x/i.test(String(row.aadhar_no))) {
+      const digits = String(row.aadhar_no).replace(/\D/g, '');
+      if (digits.length >= 4) row.aadhar_last4 = digits.slice(-4);
+    }
+    if (row.aadhar_last4) {
+      const last4 = String(row.aadhar_last4).replace(/\D/g, '');
+      row.aadhar_last4 = last4.length >= 4 ? last4.slice(-4) : '';
+    }
   },
   Settings: function (row) {
     if (!row.key) throw invalid_('Setting key is required');
